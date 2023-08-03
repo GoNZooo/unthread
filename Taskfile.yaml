@@ -1,0 +1,19 @@
+version: 3
+
+tasks:
+  default:
+    cmds:
+      - task: test
+  
+  test:
+    cmds:
+      - odin test toyl/tokenizer
+      - odin test toyl
+    sources:
+      - toyl/**/*.odin
+    aliases:
+      - t
+    method: none
+    silent: true
+
+interval: 250ms

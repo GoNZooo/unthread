@@ -86,6 +86,10 @@ Boolean :: struct {
 	value: bool,
 }
 
+/*
+  A mutable structure that keeps track of and allows operations for looking at,
+  consuming and expecting tokens. Created with `tokenizer_create`.
+*/
 Tokenizer :: struct {
 	source:   string,
 	index:    int,
@@ -119,6 +123,8 @@ Location :: struct {
 	source:      string,
 }
 
+// Creates a `Tokenizer` from a given source string. Use `tokenizer_peek`, `tokenizer_next_token`
+// and `tokenizer_expect` variants to read tokens from a `Tokenizer`.
 tokenizer_create :: proc(source: string) -> Tokenizer {
 	return Tokenizer{source = source, line = 1}
 }

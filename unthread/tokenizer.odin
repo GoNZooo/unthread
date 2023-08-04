@@ -123,6 +123,33 @@ tokenizer_create :: proc(source: string) -> Tokenizer {
 	return Tokenizer{source = source, line = 1}
 }
 
+tokenizer_expect_exact :: proc(
+	tokenizer: ^Tokenizer,
+	expectation: Token,
+) -> (
+	token: SourceToken,
+	error: Maybe(ExpectedTokenError),
+) {
+	start_location := Location {
+		source   = tokenizer.source,
+		position = tokenizer.position,
+		line     = tokenizer.line,
+		column   = tokenizer.column,
+	}
+	read_token, _, _ := tokenizer_next_token(tokenizer)
+
+	if read_token.token != expectation {
+		return SourceToken{},
+			ExpectedTokenError{
+				expected = expectation,
+				actual = read_token.token,
+				location = start_location,
+			}
+	}
+
+	return read_token, nil
+}
+
 tokenizer_expect :: proc(
 	tokenizer: ^Tokenizer,
 	expectation: Token,
@@ -141,7 +168,7 @@ tokenizer_expect :: proc(
 	expectation_typeid := reflect.union_variant_typeid(expectation)
 	token_typeid := reflect.union_variant_typeid(read_token.token)
 
-	if reflect.not_equal(expectation_typeid, token_typeid) {
+	if expectation_typeid != token_typeid {
 		return SourceToken{},
 			ExpectedTokenError{
 				expected = expectation,
@@ -745,6 +772,46 @@ test_tokenizer_expect :: proc(t: ^testing.T) {
 	read_token, expectation_error = tokenizer_expect(&tokenizer2, UpperSymbol{})
 	expected_error := ExpectedTokenError {
 		expected = UpperSymbol{},
+		actual = LowerSymbol{value = "hello"},
+		location = Location{position = 0, line = 1, column = 0, source = "hello"},
+	}
+	testing.expect(
+		t,
+		expectation_error == expected_error,
+		fmt.tprintf("Expected error: %v, got: %v", expected_error, expectation_error),
+	)
+}
+
+@(test, private = "package")
+test_tokenizer_expect_exact :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	tokenizer := tokenizer_create("hello")
+	read_token, expectation_error := tokenizer_expect_exact(
+		&tokenizer,
+		LowerSymbol{value = "hello"},
+	)
+	testing.expect(
+		t,
+		expectation_error == nil,
+		fmt.tprintf("Unexpected error: %v", expectation_error),
+	)
+	testing.expect_value(
+		t,
+		read_token,
+		SourceToken{
+			token = LowerSymbol{value = "hello"},
+			location = Location{position = 0, line = 1, column = 0},
+		},
+	)
+
+	tokenizer2 := tokenizer_create("hello")
+	read_token, expectation_error = tokenizer_expect_exact(
+		&tokenizer2,
+		LowerSymbol{value = "world"},
+	)
+	expected_error := ExpectedTokenError {
+		expected = LowerSymbol{value = "world"},
 		actual = LowerSymbol{value = "hello"},
 		location = Location{position = 0, line = 1, column = 0, source = "hello"},
 	}

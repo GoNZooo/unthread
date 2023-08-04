@@ -7,10 +7,9 @@ tasks:
   
   test:
     cmds:
-      - odin test toyl/tokenizer
-      - odin test toyl
+      - odin test unthread
     sources:
-      - toyl/**/*.odin
+      - unthread/**/*.odin
     aliases:
       - t
     method: none

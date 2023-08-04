@@ -1,8 +1,11 @@
 package unthread
 
+import "core:strings"
 import "core:testing"
 import "core:fmt"
 import "core:log"
+import "core:slice"
+import "core:mem"
 
 LockFile :: struct {
 	filename:  string,
@@ -12,9 +15,14 @@ LockFile :: struct {
 }
 
 LockFileEntry :: struct {
-	name:    string,
+	names:   []string,
 	version: string,
 	hash:    string,
+}
+
+ParsingError :: union {
+	ExpectedTokenError,
+	mem.Allocator_Error,
 }
 
 parse_lock_file :: proc(
@@ -26,6 +34,25 @@ parse_lock_file :: proc(
 	error: ExpectationError,
 ) {
 	return
+}
+
+parse_package_names :: proc(
+	tokenizer: ^Tokenizer,
+	allocator := context.allocator,
+) -> (
+	names: []string,
+	error: ParsingError,
+) {
+	full_package_name_token, expectation_error := tokenizer_expect(tokenizer, String{})
+
+	if expectation_error != nil {
+		return nil, expectation_error.?
+	}
+
+	full_package_name_string := full_package_name_token.token.(String).value
+	names = strings.split(full_package_name_string, ", ", allocator)
+
+	return names, nil
 }
 
 parse_package_name :: proc(tokenizer: ^Tokenizer) -> (name: string, error: ExpectationError) {
@@ -50,4 +77,40 @@ test_parse_package_name :: proc(t: ^testing.T) {
 	)
 
 	testing.expect_value(t, name, "@aashutoshrathi/word-wrap@npm:1.2.6")
+}
+
+@(test, private = "package")
+test_parse_package_names :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	tokenizer := tokenizer_create(
+		`"@babel/core@npm:^7.11.6, @babel/core@npm:^7.12.3, @babel/core@npm:^7.13.16, @babel/core@npm:^7.20.12, @babel/core@npm:^7.21.8, @babel/core@npm:^7.22.5, @babel/core@npm:^7.22.9, @babel/core@npm:^7.7.5"`,
+	)
+	names, error := parse_package_names(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid package names: %v\n", error),
+	)
+
+	testing.expect(
+		t,
+		slice.equal(
+			names,
+			[]string{
+				"@babel/core@npm:^7.11.6",
+				"@babel/core@npm:^7.12.3",
+				"@babel/core@npm:^7.13.16",
+				"@babel/core@npm:^7.20.12",
+				"@babel/core@npm:^7.21.8",
+				"@babel/core@npm:^7.22.5",
+				"@babel/core@npm:^7.22.9",
+				"@babel/core@npm:^7.7.5",
+			},
+		),
+		fmt.tprintf(
+			"Parsed package names are not equal to expected package names, got: %v\n",
+			names,
+		),
+	)
 }

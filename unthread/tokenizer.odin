@@ -104,6 +104,7 @@ ExpectationError :: union #shared_nil {
 	ExpectedTokenError,
 	ExpectedStringError,
 	ExpectedEndMarkerError,
+	ExpectedOneOfError,
 }
 
 ExpectedTokenError :: union {
@@ -133,6 +134,16 @@ ExpectedEndMarkerError :: union {
 
 ExpectedEndMarker :: struct {
 	expected: []string,
+	location: Location,
+}
+
+ExpectedOneOfError :: union {
+	ExpectedOneOf,
+}
+
+ExpectedOneOf :: struct {
+	expected: []Token,
+	actual:   Token,
 	location: Location,
 }
 

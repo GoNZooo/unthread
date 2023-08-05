@@ -20,8 +20,13 @@ LockFileEntry :: struct {
 	resolution:    string,
 	checksum:      string,
 	language_name: string,
-	link_type:     string,
+	link_type:     LinkType,
 	dependencies:  []Dependency,
+}
+
+LinkType :: enum {
+	Hard,
+	Soft,
 }
 
 ParsingError :: union {
@@ -190,13 +195,28 @@ parse_language_name :: proc(
 	return language_name, nil
 }
 
-parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: string, error: ExpectationError) {
+parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: LinkType, error: ExpectationError) {
 	tokenizer_skip_any_of(tokenizer, {Space{}})
 	tokenizer_skip_string(tokenizer, "linkType: ") or_return
-	link_type = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	token := tokenizer_expect(tokenizer, LowerSymbol{}) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
-	return link_type, nil
+	link_type_token := token.token.(LowerSymbol)
+
+	if link_type_token.value == "hard" {
+		return LinkType.Hard, nil
+	} else if link_type_token.value == "soft" {
+		return LinkType.Soft, nil
+	} else {
+		// TODO: this should be an error received from the tokenizer for a `expect_one_of` call or
+		// something like that
+		return link_type, ExpectedOneOfError(
+			ExpectedOneOf{
+				expected = {LowerSymbol{value = "hard"}, LowerSymbol{value = "soft"}},
+				actual = link_type_token,
+			},
+		)
+	}
 }
 
 parse_binaries :: proc(
@@ -496,9 +516,23 @@ test_parse_link_type :: proc(t: ^testing.T) {
 		fmt.tprintf("Error is not nil for valid link type: %v\n", error),
 	)
 
-	testing.expect_value(t, link_type, "hard")
+	testing.expect_value(t, link_type, LinkType.Hard)
 
 	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "")
+
+	link_type2 := `  linkType: soft` + "\n"
+	tokenizer = tokenizer_create(link_type2)
+	link_type, error = parse_link_type(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid link type: %v\n", error),
+	)
+
+	testing.expect_value(t, link_type, LinkType.Soft)
+
+	rest_of_source = tokenizer.source[tokenizer.position:]
 	testing.expect_value(t, rest_of_source, "")
 }
 

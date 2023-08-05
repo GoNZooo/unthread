@@ -15,13 +15,14 @@ LockFile :: struct {
 }
 
 LockFileEntry :: struct {
-	names:         []string,
-	version:       string,
-	resolution:    string,
-	checksum:      string,
-	language_name: string,
-	link_type:     LinkType,
-	dependencies:  []Dependency,
+	names:             []string,
+	version:           string,
+	resolution:        string,
+	checksum:          string,
+	language_name:     string,
+	link_type:         LinkType,
+	dependencies:      []Dependency,
+	peer_dependencies: []Dependency,
 }
 
 LinkType :: enum {
@@ -126,6 +127,32 @@ parse_dependencies :: proc(
 ) {
 	tokenizer_skip_any_of(tokenizer, {Space{}})
 	tokenizer_skip_string(tokenizer, "dependencies:") or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+	reading_deps := true
+	dependencies_slice := make([dynamic]Dependency, 0, 0, allocator) or_return
+
+	for reading_deps {
+		dependency, error := parse_dependency_line(tokenizer)
+		if error != nil {
+			reading_deps = false
+			continue
+		}
+
+		append(&dependencies_slice, dependency)
+	}
+
+	return dependencies_slice[:], nil
+}
+
+parse_peer_dependencies :: proc(
+	tokenizer: ^Tokenizer,
+	allocator := context.allocator,
+) -> (
+	dependencies: []Dependency,
+	error: ParsingError,
+) {
+	tokenizer_skip_any_of(tokenizer, {Space{}})
+	tokenizer_skip_string(tokenizer, "peerDependencies:") or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 	reading_deps := true
 	dependencies_slice := make([dynamic]Dependency, 0, 0, allocator) or_return
@@ -450,6 +477,58 @@ test_parse_dependencies :: proc(t: ^testing.T) {
 				{name = "gensync", bounds = "^1.0.0-beta.2"},
 				{name = "json5", bounds = "^2.2.2"},
 				{name = "semver", bounds = "^6.3.1"},
+			},
+		),
+		fmt.tprintf(
+			"Parsed dependencies are not equal to expected dependencies, got: %v\n",
+			dependencies,
+		),
+	)
+}
+
+@(test, private = "package")
+test_parse_peer_dependencies :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	dependencies1 := `  peerDependencies:
+    "@swc/helpers": ^0.5.05` + "\n"
+	tokenizer := tokenizer_create(dependencies1)
+	dependencies, error := parse_peer_dependencies(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid dependencies: %v\n", error),
+	)
+
+	testing.expect(
+		t,
+		slice.equal(dependencies, []Dependency{{name = "@swc/helpers", bounds = "^0.5.05"}}),
+		fmt.tprintf(
+			"Parsed dependencies are not equal to expected dependencies, got: %v\n",
+			dependencies,
+		),
+	)
+
+	dependencies2 :=
+		`  peerDependencies:
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0
+    react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0` +
+		"\n"
+	tokenizer = tokenizer_create(dependencies2)
+	dependencies, error = parse_peer_dependencies(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid dependencies: %v\n", error),
+	)
+
+	testing.expect(
+		t,
+		slice.equal(
+			dependencies,
+			[]Dependency{
+				{name = "react", bounds = "^16.8.0 || ^17.0.0 || ^18.0.0"},
+				{name = "react-dom", bounds = "^16.8.0 || ^17.0.0 || ^18.0.0"},
 			},
 		),
 		fmt.tprintf(

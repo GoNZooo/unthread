@@ -20,6 +20,7 @@ LockFileEntry :: struct {
 	resolution:    string,
 	checksum:      string,
 	language_name: string,
+	link_type:     string,
 	dependencies:  []Dependency,
 }
 
@@ -182,6 +183,15 @@ parse_language_name :: proc(
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
 	return language_name, nil
+}
+
+parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: string, error: ExpectationError) {
+	tokenizer_skip_any_of(tokenizer, {Space{}})
+	tokenizer_skip_string(tokenizer, "linkType: ") or_return
+	link_type = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+
+	return link_type, nil
 }
 
 @(test, private = "package")
@@ -427,6 +437,25 @@ test_parse_language_name :: proc(t: ^testing.T) {
 	)
 
 	testing.expect_value(t, language_name, "node")
+
+	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "")
+}
+
+@(test, private = "package")
+test_parse_link_type :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	link_type1 := `  linkType: hard` + "\n"
+	tokenizer := tokenizer_create(link_type1)
+	link_type, error := parse_link_type(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid link type: %v\n", error),
+	)
+
+	testing.expect_value(t, link_type, "hard")
 
 	rest_of_source := tokenizer.source[tokenizer.position:]
 	testing.expect_value(t, rest_of_source, "")

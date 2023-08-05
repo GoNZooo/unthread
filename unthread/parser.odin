@@ -22,7 +22,13 @@ LockFileEntry :: struct {
 
 ParsingError :: union {
 	ExpectedTokenError,
+	ExpectedStringError,
 	mem.Allocator_Error,
+}
+
+Dependency :: struct {
+	name:   string,
+	bounds: string,
 }
 
 parse_lock_file :: proc(
@@ -75,6 +81,7 @@ parse_package_name :: proc(tokenizer: ^Tokenizer) -> (name: string, error: Expec
 }
 
 parse_version_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ExpectationError) {
+	tokenizer_skip_any_of(tokenizer, {Space{}})
 	tokenizer_skip_string(tokenizer, "version: ") or_return
 	string := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
 	tokenizer_skip_any_of(tokenizer, {Newline{}})
@@ -88,11 +95,64 @@ parse_resolution_line :: proc(
 	version: string,
 	error: ExpectationError,
 ) {
+	tokenizer_skip_any_of(tokenizer, {Space{}})
 	tokenizer_skip_string(tokenizer, "resolution: ") or_return
 	token := tokenizer_expect(tokenizer, String{}) or_return
 	tokenizer_skip_any_of(tokenizer, {Newline{}})
 
 	return token.token.(String).value, nil
+}
+
+parse_dependencies :: proc(
+	tokenizer: ^Tokenizer,
+	allocator := context.allocator,
+) -> (
+	dependencies: []Dependency,
+	error: ParsingError,
+) {
+	tokenizer_skip_any_of(tokenizer, {Space{}})
+	tokenizer_skip_string(tokenizer, "dependencies:") or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+	reading_deps := true
+	dependencies_slice := make([dynamic]Dependency, 0, 0, allocator) or_return
+
+	for reading_deps {
+		dependency, error := parse_dependency_line(tokenizer)
+		if error != nil {
+			reading_deps = false
+			continue
+		}
+
+		append(&dependencies_slice, dependency)
+	}
+
+	return dependencies_slice[:], nil
+}
+
+parse_dependency_line :: proc(
+	tokenizer: ^Tokenizer,
+) -> (
+	dependency: Dependency,
+	error: ExpectationError,
+) {
+	tokenizer_skip_string(tokenizer, "    ") or_return
+	token, expect_error := tokenizer_expect(tokenizer, String{})
+	if expect_error != nil {
+		// we hit a non-string dependency, so we want to read the line as `name: bound`
+		name := tokenizer_read_string_until(tokenizer, {":"}) or_return
+		tokenizer_expect(tokenizer, Colon{}) or_return
+		bounds := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+		tokenizer_expect(tokenizer, Newline{}) or_return
+
+		return Dependency{name = name, bounds = bounds}, nil
+	}
+
+	name := token.token.(String).value
+	tokenizer_skip_any_of(tokenizer, {Colon{}, Space{}})
+	bounds := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+
+	return Dependency{name = name, bounds = bounds}, nil
 }
 
 @(test, private = "package")
@@ -220,4 +280,28 @@ test_parse_resolution_line :: proc(t: ^testing.T) {
 
 	rest_of_source := tokenizer.source[tokenizer.position:]
 	testing.expect_value(t, rest_of_source, "")
+}
+
+@(test, private = "package")
+test_parse_dependencies :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	dependencies1 := `  dependencies:
+    "@babel/highlight": ^7.22.5` + "\n"
+	tokenizer := tokenizer_create(dependencies1)
+	dependencies, error := parse_dependencies(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid dependencies: %v\n", error),
+	)
+
+	testing.expect(
+		t,
+		slice.equal(dependencies, []Dependency{{name = "@babel/highlight", bounds = "^7.22.5"}}),
+		fmt.tprintf(
+			"Parsed dependencies are not equal to expected dependencies, got: %v\n",
+			dependencies,
+		),
+	)
 }

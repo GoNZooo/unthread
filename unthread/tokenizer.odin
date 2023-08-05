@@ -25,6 +25,7 @@ Token :: union {
 	RightCurlyBrace,
 	LeftAngleBracket,
 	RightAngleBracket,
+	Caret,
 	Colon,
 	Comma,
 	Dot,
@@ -50,6 +51,7 @@ LeftCurlyBrace :: struct {}
 RightCurlyBrace :: struct {}
 LeftAngleBracket :: struct {}
 RightAngleBracket :: struct {}
+Caret :: struct {}
 Colon :: struct {}
 Comma :: struct {}
 Dot :: struct {}
@@ -252,10 +254,12 @@ tokenizer_skip_string :: proc(
 
 	source := tokenizer.source[tokenizer.position:]
 	if !strings.has_prefix(source, expected_string) {
+		rest_length := min(len(expected_string), len(source))
+
 		return(
 			ExpectedString{
 				expected = expected_string,
-				actual = source[:len(expected_string)],
+				actual = source[:rest_length],
 				location = start_location,
 			} \
 		)
@@ -392,6 +396,11 @@ current :: proc(tokenizer: ^Tokenizer, modify: bool) -> (token: Token) {
 		tokenizer_copy.column += 1
 
 		return RightAngleBracket{}
+	case '^':
+		tokenizer_copy.position += 1
+		tokenizer_copy.column += 1
+
+		return Caret{}
 	case '$':
 		return read_char(&tokenizer_copy)
 	case ':':

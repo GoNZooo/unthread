@@ -44,7 +44,8 @@ parse_package_name_header :: proc(
 	error: ParsingError,
 ) {
 	names = parse_package_names(tokenizer, allocator) or_return
-	tokenizer_skip_any_of(tokenizer, {Colon{}, Newline{}})
+	tokenizer_expect(tokenizer, Colon{}) or_return
+	tokenizer_skip_any_of(tokenizer, {Newline{}})
 
 	return names, nil
 }

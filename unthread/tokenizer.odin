@@ -280,7 +280,7 @@ tokenizer_skip_string :: proc(
 
 tokenizer_skip_any_of :: proc(tokenizer: ^Tokenizer, tokens: []Token) {
 	match: for {
-		token := peek(tokenizer)
+		token := tokenizer_peek(tokenizer)
 		token_tag := reflect.union_variant_typeid(token)
 		for t in tokens {
 			t_tag := reflect.union_variant_typeid(t)
@@ -323,8 +323,8 @@ tokenizer_next_token :: proc(
 	return source_token, current_index, token != nil
 }
 
-@(private = "file")
-peek :: proc(tokenizer: ^Tokenizer) -> (token: Token) {
+@(private = "package")
+tokenizer_peek :: proc(tokenizer: ^Tokenizer) -> (token: Token) {
 	if tokenizer.index >= len(tokenizer.source) {
 		return nil
 	}

@@ -136,17 +136,20 @@ parse_dependency_line :: proc(
 	error: ExpectationError,
 ) {
 	tokenizer_skip_string(tokenizer, "    ") or_return
-	token, expect_error := tokenizer_expect(tokenizer, String{})
-	if expect_error != nil {
+	peek_token := tokenizer_peek(tokenizer)
+	_, is_string := peek_token.(String)
+	if !is_string {
 		// we hit a non-string dependency, so we want to read the line as `name: bound`
 		name := tokenizer_read_string_until(tokenizer, {":"}) or_return
 		tokenizer_expect(tokenizer, Colon{}) or_return
+		tokenizer_expect(tokenizer, Space{}) or_return
 		bounds := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
 		tokenizer_expect(tokenizer, Newline{}) or_return
 
 		return Dependency{name = name, bounds = bounds}, nil
 	}
 
+	token := tokenizer_expect(tokenizer, String{}) or_return
 	name := token.token.(String).value
 	tokenizer_skip_any_of(tokenizer, {Colon{}, Space{}})
 	bounds := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
@@ -299,6 +302,59 @@ test_parse_dependencies :: proc(t: ^testing.T) {
 	testing.expect(
 		t,
 		slice.equal(dependencies, []Dependency{{name = "@babel/highlight", bounds = "^7.22.5"}}),
+		fmt.tprintf(
+			"Parsed dependencies are not equal to expected dependencies, got: %v\n",
+			dependencies,
+		),
+	)
+
+	dependencies2 := `  dependencies:
+    "@ampproject/remapping": ^2.2.0
+    "@babel/code-frame": ^7.22.5
+    "@babel/generator": ^7.22.9
+    "@babel/helper-compilation-targets": ^7.22.9
+    "@babel/helper-module-transforms": ^7.22.9
+    "@babel/helpers": ^7.22.6
+    "@babel/parser": ^7.22.7
+    "@babel/template": ^7.22.5
+    "@babel/traverse": ^7.22.8
+    "@babel/types": ^7.22.5
+    convert-source-map: ^1.7.0
+    debug: ^4.1.0
+    gensync: ^1.0.0-beta.2
+    json5: ^2.2.2
+    semver: ^6.3.1
+`
+	tokenizer = tokenizer_create(dependencies2)
+	dependencies, error = parse_dependencies(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid dependencies: %v\n", error),
+	)
+
+	testing.expect(
+		t,
+		slice.equal(
+			dependencies,
+			[]Dependency{
+				{name = "@ampproject/remapping", bounds = "^2.2.0"},
+				{name = "@babel/code-frame", bounds = "^7.22.5"},
+				{name = "@babel/generator", bounds = "^7.22.9"},
+				{name = "@babel/helper-compilation-targets", bounds = "^7.22.9"},
+				{name = "@babel/helper-module-transforms", bounds = "^7.22.9"},
+				{name = "@babel/helpers", bounds = "^7.22.6"},
+				{name = "@babel/parser", bounds = "^7.22.7"},
+				{name = "@babel/template", bounds = "^7.22.5"},
+				{name = "@babel/traverse", bounds = "^7.22.8"},
+				{name = "@babel/types", bounds = "^7.22.5"},
+				{name = "convert-source-map", bounds = "^1.7.0"},
+				{name = "debug", bounds = "^4.1.0"},
+				{name = "gensync", bounds = "^1.0.0-beta.2"},
+				{name = "json5", bounds = "^2.2.2"},
+				{name = "semver", bounds = "^6.3.1"},
+			},
+		),
 		fmt.tprintf(
 			"Parsed dependencies are not equal to expected dependencies, got: %v\n",
 			dependencies,

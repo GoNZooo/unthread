@@ -167,6 +167,20 @@ parse_checksum :: proc(tokenizer: ^Tokenizer) -> (checksum: string, error: Expec
 	return checksum, nil
 }
 
+parse_language_name :: proc(
+	tokenizer: ^Tokenizer,
+) -> (
+	language_name: string,
+	error: ExpectationError,
+) {
+	tokenizer_skip_any_of(tokenizer, {Space{}})
+	tokenizer_skip_string(tokenizer, "languageName: ") or_return
+	language_name = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+
+	return language_name, nil
+}
+
 @(test, private = "package")
 test_parse_package_name :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
@@ -391,6 +405,25 @@ test_parse_checksum :: proc(t: ^testing.T) {
 		checksum,
 		"7bf069aeceb417902c4efdaefab1f7b94adb7dea694a9aed1bda2edf4135348a080820529b1a300c6f8605740a00ca00c19b2d5e74b5dd489d99d8c11d5e56d1",
 	)
+
+	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "")
+}
+
+@(test, private = "package")
+test_parse_language_name :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	language_name1 := `  languageName: node` + "\n"
+	tokenizer := tokenizer_create(language_name1)
+	language_name, error := parse_language_name(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid language name: %v\n", error),
+	)
+
+	testing.expect_value(t, language_name, "node")
 
 	rest_of_source := tokenizer.source[tokenizer.position:]
 	testing.expect_value(t, rest_of_source, "")

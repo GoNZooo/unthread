@@ -158,6 +158,15 @@ parse_dependency_line :: proc(
 	return Dependency{name = name, bounds = bounds}, nil
 }
 
+parse_checksum :: proc(tokenizer: ^Tokenizer) -> (checksum: string, error: ExpectationError) {
+	tokenizer_skip_any_of(tokenizer, {Space{}})
+	tokenizer_skip_string(tokenizer, "checksum: ") or_return
+	checksum = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+
+	return checksum, nil
+}
+
 @(test, private = "package")
 test_parse_package_name :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
@@ -360,4 +369,29 @@ test_parse_dependencies :: proc(t: ^testing.T) {
 			dependencies,
 		),
 	)
+}
+
+@(test, private = "package")
+test_parse_checksum :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	checksum1 :=
+		`  checksum: 7bf069aeceb417902c4efdaefab1f7b94adb7dea694a9aed1bda2edf4135348a080820529b1a300c6f8605740a00ca00c19b2d5e74b5dd489d99d8c11d5e56d1` +
+		"\n"
+	tokenizer := tokenizer_create(checksum1)
+	checksum, error := parse_checksum(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid checksum: %v\n", error),
+	)
+
+	testing.expect_value(
+		t,
+		checksum,
+		"7bf069aeceb417902c4efdaefab1f7b94adb7dea694a9aed1bda2edf4135348a080820529b1a300c6f8605740a00ca00c19b2d5e74b5dd489d99d8c11d5e56d1",
+	)
+
+	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "")
 }

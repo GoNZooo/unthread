@@ -82,6 +82,19 @@ parse_version_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: Ex
 	return string, nil
 }
 
+parse_resolution_line :: proc(
+	tokenizer: ^Tokenizer,
+) -> (
+	version: string,
+	error: ExpectationError,
+) {
+	tokenizer_skip_string(tokenizer, "resolution: ") or_return
+	token := tokenizer_expect(tokenizer, String{}) or_return
+	tokenizer_skip_any_of(tokenizer, {Newline{}})
+
+	return token.token.(String).value, nil
+}
+
 @(test, private = "package")
 test_parse_package_name :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
@@ -186,6 +199,24 @@ test_parse_version_line :: proc(t: ^testing.T) {
 	)
 
 	testing.expect_value(t, version, "1.2.3")
+
+	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "")
+}
+
+@(test, private = "package")
+test_parse_resolution_line :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	tokenizer := tokenizer_create(`resolution: "@babel/code-frame@npm:7.22.5"` + "\n")
+	resolution, error := parse_resolution_line(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid resolution line: %v\n", error),
+	)
+
+	testing.expect_value(t, resolution, "@babel/code-frame@npm:7.22.5")
 
 	rest_of_source := tokenizer.source[tokenizer.position:]
 	testing.expect_value(t, rest_of_source, "")

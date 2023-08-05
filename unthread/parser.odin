@@ -35,6 +35,11 @@ Dependency :: struct {
 	bounds: string,
 }
 
+Binary :: struct {
+	name: string,
+	path: string,
+}
+
 parse_lock_file :: proc(
 	filename: string,
 	source: string,
@@ -192,6 +197,42 @@ parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: string, error: Exp
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
 	return link_type, nil
+}
+
+parse_binaries :: proc(
+	tokenizer: ^Tokenizer,
+	allocator := context.allocator,
+) -> (
+	binaries: []Binary,
+	error: ParsingError,
+) {
+	tokenizer_skip_any_of(tokenizer, {Space{}})
+	tokenizer_skip_string(tokenizer, "bin:") or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+	reading_binaries := true
+	binaries_slice := make([dynamic]Binary, 0, 0, allocator) or_return
+
+	for reading_binaries {
+		binary, error := parse_binary_line(tokenizer)
+		if error != nil {
+			reading_binaries = false
+			continue
+		}
+
+		append(&binaries_slice, binary)
+	}
+
+	return binaries_slice[:], nil
+}
+
+parse_binary_line :: proc(tokenizer: ^Tokenizer) -> (binary: Binary, error: ExpectationError) {
+	tokenizer_skip_string(tokenizer, "    ") or_return
+	name := tokenizer_read_string_until(tokenizer, {":"}) or_return
+	tokenizer_skip_any_of(tokenizer, {Colon{}, Space{}})
+	path := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+
+	return Binary{name = name, path = path}, nil
 }
 
 @(test, private = "package")
@@ -458,5 +499,59 @@ test_parse_link_type :: proc(t: ^testing.T) {
 	testing.expect_value(t, link_type, "hard")
 
 	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "")
+}
+
+@(test, private = "package")
+test_parse_binaries :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	binaries1 := `  bin:
+    prettierd: bin/prettierd` + "\n"
+	tokenizer := tokenizer_create(binaries1)
+	binaries, error := parse_binaries(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid binaries: %v\n", error),
+	)
+
+	testing.expect(
+		t,
+		slice.equal(binaries, []Binary{{name = "prettierd", path = "bin/prettierd"}}),
+		fmt.tprintf("Parsed binaries are not equal to expected binaries, got: %v\n", binaries),
+	)
+
+	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "")
+
+	binaries2 :=
+		`  bin:
+    getstorybook: ./bin/index.js
+    sb: ./bin/index.js
+    third: bin/third.js` +
+		"\n"
+	tokenizer = tokenizer_create(binaries2)
+	binaries, error = parse_binaries(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid binaries: %v\n", error),
+	)
+
+	testing.expect(
+		t,
+		slice.equal(
+			binaries,
+			[]Binary{
+				{name = "getstorybook", path = "./bin/index.js"},
+				{name = "sb", path = "./bin/index.js"},
+				{name = "third", path = "bin/third.js"},
+			},
+		),
+		fmt.tprintf("Parsed binaries are not equal to expected binaries, got: %v\n", binaries),
+	)
+
+	rest_of_source = tokenizer.source[tokenizer.position:]
 	testing.expect_value(t, rest_of_source, "")
 }

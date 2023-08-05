@@ -36,6 +36,19 @@ parse_lock_file :: proc(
 	return
 }
 
+parse_package_name_header :: proc(
+	tokenizer: ^Tokenizer,
+	allocator := context.allocator,
+) -> (
+	names: []string,
+	error: ParsingError,
+) {
+	names = parse_package_names(tokenizer, allocator) or_return
+	tokenizer_skip_any_of(tokenizer, {Colon{}, Newline{}})
+
+	return names, nil
+}
+
 parse_package_names :: proc(
 	tokenizer: ^Tokenizer,
 	allocator := context.allocator,
@@ -43,11 +56,7 @@ parse_package_names :: proc(
 	names: []string,
 	error: ParsingError,
 ) {
-	full_package_name_token, expectation_error := tokenizer_expect(tokenizer, String{})
-
-	if expectation_error != nil {
-		return nil, expectation_error.?
-	}
+	full_package_name_token := tokenizer_expect(tokenizer, String{}) or_return
 
 	full_package_name_string := full_package_name_token.token.(String).value
 	names = strings.split(full_package_name_string, ", ", allocator)
@@ -58,7 +67,7 @@ parse_package_names :: proc(
 parse_package_name :: proc(tokenizer: ^Tokenizer) -> (name: string, error: ExpectationError) {
 	token, expect_error := tokenizer_expect(tokenizer, String{})
 	if expect_error != nil {
-		return "", expect_error.?
+		return "", expect_error
 	}
 
 	return token.token.(String).value, nil
@@ -113,4 +122,44 @@ test_parse_package_names :: proc(t: ^testing.T) {
 			names,
 		),
 	)
+}
+
+@(test, private = "package")
+test_parse_package_name_header :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	package_names :: `"@babel/core@npm:^7.11.6, @babel/core@npm:^7.12.3, @babel/core@npm:^7.13.16, @babel/core@npm:^7.20.12, @babel/core@npm:^7.21.8, @babel/core@npm:^7.22.5, @babel/core@npm:^7.22.9, @babel/core@npm:^7.7.5"`
+	terminator_newline_and_indentation :: ":\n  "
+
+	tokenizer := tokenizer_create(package_names + terminator_newline_and_indentation)
+	names, error := parse_package_name_header(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid package names: %v\n", error),
+	)
+
+	testing.expect(
+		t,
+		slice.equal(
+			names,
+			[]string{
+				"@babel/core@npm:^7.11.6",
+				"@babel/core@npm:^7.12.3",
+				"@babel/core@npm:^7.13.16",
+				"@babel/core@npm:^7.20.12",
+				"@babel/core@npm:^7.21.8",
+				"@babel/core@npm:^7.22.5",
+				"@babel/core@npm:^7.22.9",
+				"@babel/core@npm:^7.7.5",
+			},
+		),
+		fmt.tprintf(
+			"Parsed package names are not equal to expected package names, got: %v\n",
+			names,
+		),
+	)
+
+	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "  ")
 }

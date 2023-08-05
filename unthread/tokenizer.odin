@@ -103,13 +103,21 @@ ExpectationError :: union {
 	ExpectedStringError,
 }
 
-ExpectedTokenError :: struct {
+ExpectedTokenError :: union {
+	ExpectedTokenErrorData,
+}
+
+ExpectedTokenErrorData :: struct {
 	expected: Token,
 	actual:   Token,
 	location: Location,
 }
 
-ExpectedStringError :: struct {
+ExpectedStringError :: union {
+	ExpectedStringErrorData,
+}
+
+ExpectedStringErrorData :: struct {
 	expected: string,
 	actual:   string,
 	location: Location,
@@ -134,7 +142,7 @@ tokenizer_expect_exact :: proc(
 	expectation: Token,
 ) -> (
 	token: SourceToken,
-	error: Maybe(ExpectedTokenError),
+	error: ExpectedTokenError,
 ) {
 	start_location := Location {
 		source   = tokenizer.source,
@@ -146,7 +154,7 @@ tokenizer_expect_exact :: proc(
 
 	if read_token.token != expectation {
 		return SourceToken{},
-			ExpectedTokenError{
+			ExpectedTokenErrorData{
 				expected = expectation,
 				actual = read_token.token,
 				location = start_location,
@@ -161,7 +169,7 @@ tokenizer_expect :: proc(
 	expectation: Token,
 ) -> (
 	token: SourceToken,
-	error: Maybe(ExpectedTokenError),
+	error: ExpectedTokenError,
 ) {
 	start_location := Location {
 		source   = tokenizer.source,
@@ -176,7 +184,7 @@ tokenizer_expect :: proc(
 
 	if expectation_typeid != token_typeid {
 		return SourceToken{},
-			ExpectedTokenError{
+			ExpectedTokenErrorData{
 				expected = expectation,
 				actual = read_token.token,
 				location = start_location,
@@ -190,7 +198,7 @@ tokenizer_skip_string :: proc(
 	tokenizer: ^Tokenizer,
 	expected_string: string,
 ) -> (
-	error: Maybe(ExpectedStringError),
+	error: ExpectedStringError,
 ) {
 	start_location := Location {
 		source   = tokenizer.source,
@@ -202,7 +210,7 @@ tokenizer_skip_string :: proc(
 	source := tokenizer.source[tokenizer.position:]
 	if !strings.has_prefix(source, expected_string) {
 		return(
-			ExpectedStringError{
+			ExpectedStringErrorData{
 				expected = expected_string,
 				actual = source[:len(expected_string)],
 				location = start_location,
@@ -526,7 +534,8 @@ read_string :: proc(tokenizer: ^Tokenizer, quote_characters: string) -> (token: 
 		log.panicf("Failed to find end quote for string: %s", rest_of_string)
 	}
 	string_contents := rest_of_string[:end_quote_index]
-	tokenizer.position += end_quote_index + 1
+	// NOTE: 2 because we want to skip over the quote in terms of position; we've already read it
+	tokenizer.position += end_quote_index + 2
 	last_newline_index := strings.last_index(string_contents, "\n")
 	if last_newline_index == -1 {
 		tokenizer.column += len(string_contents) + 2
@@ -608,6 +617,8 @@ test_read_double_quoted_string :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, index, 0)
 	testing.expect_value(t, ok, true)
+	rest_of_string := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_string, "")
 }
 
 @(test, private = "package")
@@ -626,6 +637,8 @@ test_read_single_quoted_string :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, index, 0)
 	testing.expect_value(t, ok, true)
+	rest_of_string := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_string, "")
 }
 
 @(test, private = "package")
@@ -776,7 +789,7 @@ test_tokenizer_expect :: proc(t: ^testing.T) {
 
 	tokenizer2 := tokenizer_create("hello")
 	read_token, expectation_error = tokenizer_expect(&tokenizer2, UpperSymbol{})
-	expected_error := ExpectedTokenError {
+	expected_error := ExpectedTokenErrorData {
 		expected = UpperSymbol{},
 		actual = LowerSymbol{value = "hello"},
 		location = Location{position = 0, line = 1, column = 0, source = "hello"},
@@ -816,7 +829,7 @@ test_tokenizer_expect_exact :: proc(t: ^testing.T) {
 		&tokenizer2,
 		LowerSymbol{value = "world"},
 	)
-	expected_error := ExpectedTokenError {
+	expected_error := ExpectedTokenErrorData {
 		expected = LowerSymbol{value = "world"},
 		actual = LowerSymbol{value = "hello"},
 		location = Location{position = 0, line = 1, column = 0, source = "hello"},

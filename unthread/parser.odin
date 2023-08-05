@@ -23,6 +23,7 @@ LockFileEntry :: struct {
 	link_type:         LinkType,
 	dependencies:      []Dependency,
 	peer_dependencies: []Dependency,
+	dependencies_meta: map[string]DependencyMeta,
 }
 
 LinkType :: enum {
@@ -33,12 +34,17 @@ LinkType :: enum {
 ParsingError :: union {
 	ExpectedTokenError,
 	ExpectedStringError,
+	ExpectedEndMarkerError,
 	mem.Allocator_Error,
 }
 
 Dependency :: struct {
 	name:   string,
 	bounds: string,
+}
+
+DependencyMeta :: struct {
+	optional: bool,
 }
 
 Binary :: struct {
@@ -197,6 +203,60 @@ parse_dependency_line :: proc(
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
 	return Dependency{name = name, bounds = bounds}, nil
+}
+
+parse_dependencies_meta :: proc(
+	tokenizer: ^Tokenizer,
+	allocator := context.allocator,
+) -> (
+	dependencies_meta: map[string]DependencyMeta,
+	error: ParsingError,
+) {
+	tokenizer_skip_string(tokenizer, "  dependenciesMeta:") or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+	reading_meta := true
+	dependencies_meta = make(map[string]DependencyMeta, 0, allocator) or_return
+
+	for reading_meta {
+		base_indent_error := tokenizer_skip_string(tokenizer, "    ")
+		if base_indent_error != nil {
+			reading_meta = false
+			continue
+		}
+		peek_token := tokenizer_peek(tokenizer)
+		_, is_string := peek_token.(String)
+		package_name: string
+		if !is_string {
+			package_name = tokenizer_read_string_until(tokenizer, {":"}) or_return
+		} else {
+			package_name_token := tokenizer_expect(tokenizer, String{}) or_return
+			package_name = package_name_token.token.(String).value
+		}
+
+		tokenizer_expect(tokenizer, Colon{}) or_return
+		tokenizer_expect(tokenizer, Newline{}) or_return
+		dependency_meta := parse_dependency_meta(tokenizer) or_return
+
+		dependencies_meta[package_name] = dependency_meta
+	}
+
+	return dependencies_meta, nil
+}
+
+parse_dependency_meta :: proc(
+	tokenizer: ^Tokenizer,
+) -> (
+	dependency_meta: DependencyMeta,
+	error: ParsingError,
+) {
+	tokenizer_skip_string(tokenizer, "      ") or_return
+	tokenizer_expect_exact(tokenizer, LowerSymbol{value = "optional"}) or_return
+	tokenizer_expect(tokenizer, Colon{}) or_return
+	tokenizer_skip_any_of(tokenizer, {Space{}})
+	token := tokenizer_expect(tokenizer, Boolean{}) or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+
+	return DependencyMeta{optional = token.token.(Boolean).value}, nil
 }
 
 parse_checksum :: proc(tokenizer: ^Tokenizer) -> (checksum: string, error: ExpectationError) {
@@ -667,4 +727,127 @@ test_parse_binaries :: proc(t: ^testing.T) {
 
 	rest_of_source = tokenizer.source[tokenizer.position:]
 	testing.expect_value(t, rest_of_source, "")
+}
+
+@(test, private = "package")
+test_parse_dependencies_meta :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	dependencies_meta1 :=
+		`  dependenciesMeta:
+    "@esbuild/android-arm":
+      optional: true
+    "@esbuild/android-arm64":
+      optional: true
+    "@esbuild/android-x64":
+      optional: true
+    "@esbuild/darwin-arm64":
+      optional: true
+    "@esbuild/darwin-x64":
+      optional: true
+    "@esbuild/freebsd-arm64":
+      optional: true
+    "@esbuild/freebsd-x64":
+      optional: true
+    "@esbuild/linux-arm":
+      optional: true
+    "@esbuild/linux-arm64":
+      optional: true
+    "@esbuild/linux-ia32":
+      optional: true
+    "@esbuild/linux-loong64":
+      optional: true
+    "@esbuild/linux-mips64el":
+      optional: true
+    "@esbuild/linux-ppc64":
+      optional: true
+    "@esbuild/linux-riscv64":
+      optional: true
+    "@esbuild/linux-s390x":
+      optional: true
+    "@esbuild/linux-x64":
+      optional: true
+    "@esbuild/netbsd-x64":
+      optional: true
+    "@esbuild/openbsd-x64":
+      optional: true
+    "@esbuild/sunos-x64":
+      optional: true
+    "@esbuild/win32-arm64":
+      optional: true
+    "@esbuild/win32-ia32":
+      optional: true
+    "@esbuild/win32-x64":
+      optional: true` +
+		"\n"
+
+	expected_dependencies_meta := map[string]DependencyMeta {
+		"@esbuild/android-arm" = {optional = true},
+		"@esbuild/android-arm64" = {optional = true},
+		"@esbuild/android-x64" = {optional = true},
+		"@esbuild/darwin-arm64" = {optional = true},
+		"@esbuild/darwin-x64" = {optional = true},
+		"@esbuild/freebsd-arm64" = {optional = true},
+		"@esbuild/freebsd-x64" = {optional = true},
+		"@esbuild/linux-arm" = {optional = true},
+		"@esbuild/linux-arm64" = {optional = true},
+		"@esbuild/linux-ia32" = {optional = true},
+		"@esbuild/linux-loong64" = {optional = true},
+		"@esbuild/linux-mips64el" = {optional = true},
+		"@esbuild/linux-ppc64" = {optional = true},
+		"@esbuild/linux-riscv64" = {optional = true},
+		"@esbuild/linux-s390x" = {optional = true},
+		"@esbuild/linux-x64" = {optional = true},
+		"@esbuild/netbsd-x64" = {optional = true},
+		"@esbuild/openbsd-x64" = {optional = true},
+		"@esbuild/sunos-x64" = {optional = true},
+		"@esbuild/win32-arm64" = {optional = true},
+		"@esbuild/win32-ia32" = {optional = true},
+		"@esbuild/win32-x64" = {optional = true},
+	}
+
+	tokenizer := tokenizer_create(dependencies_meta1)
+	dependencies_meta, error := parse_dependencies_meta(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid dependencies meta: %v\n", error),
+	)
+
+	testing.expect(
+		t,
+		len(dependencies_meta) == len(expected_dependencies_meta),
+		fmt.tprintf(
+			"Parsed dependencies meta length is not equal to expected dependencies meta length, got: %v\n",
+			dependencies_meta,
+		),
+	)
+
+	for key, value in dependencies_meta {
+		testing.expect(
+			t,
+			value == expected_dependencies_meta[key],
+			fmt.tprintf(
+				"Parsed dependencies meta is not equal to expected dependencies meta, got: %v\n",
+				dependencies_meta,
+			),
+		)
+	}
+
+	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "")
+}
+
+maps_equal :: proc(a: map[$K]$V, b: map[K]V) -> bool where intrinsics.type_is_comparable(V) {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for key, value in a {
+		if b[key] != value {
+			return false
+		}
+	}
+
+	return true
 }

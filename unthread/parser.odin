@@ -15,9 +15,12 @@ LockFile :: struct {
 }
 
 LockFileEntry :: struct {
-	names:   []string,
-	version: string,
-	hash:    string,
+	names:         []string,
+	version:       string,
+	resolution:    string,
+	checksum:      string,
+	language_name: string,
+	dependencies:  []Dependency,
 }
 
 ParsingError :: union {

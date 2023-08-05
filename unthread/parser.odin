@@ -74,6 +74,14 @@ parse_package_name :: proc(tokenizer: ^Tokenizer) -> (name: string, error: Expec
 	return token.token.(String).value, nil
 }
 
+parse_version_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ExpectationError) {
+	tokenizer_skip_string(tokenizer, "version: ") or_return
+	string := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	tokenizer_skip_any_of(tokenizer, {Newline{}})
+
+	return string, nil
+}
+
 @(test, private = "package")
 test_parse_package_name :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
@@ -163,4 +171,22 @@ test_parse_package_name_header :: proc(t: ^testing.T) {
 
 	rest_of_source := tokenizer.source[tokenizer.position:]
 	testing.expect_value(t, rest_of_source, "  ")
+}
+
+@(test, private = "package")
+test_parse_version_line :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	tokenizer := tokenizer_create("version: 1.2.3\n")
+	version, error := parse_version_line(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Error is not nil for valid version line: %v\n", error),
+	)
+
+	testing.expect_value(t, version, "1.2.3")
+
+	rest_of_source := tokenizer.source[tokenizer.position:]
+	testing.expect_value(t, rest_of_source, "")
 }

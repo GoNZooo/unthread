@@ -98,28 +98,39 @@ Tokenizer :: struct {
 	column:   int,
 }
 
-ExpectationError :: union {
+ExpectationError :: union #shared_nil {
 	ExpectedTokenError,
 	ExpectedStringError,
+	ExpectedEndMarkerError,
 }
 
 ExpectedTokenError :: union {
-	ExpectedTokenErrorData,
+	ExpectedToken,
 }
 
-ExpectedTokenErrorData :: struct {
+ExpectedToken :: struct {
 	expected: Token,
 	actual:   Token,
 	location: Location,
 }
 
 ExpectedStringError :: union {
-	ExpectedStringErrorData,
+	ExpectedString,
+	ExpectedEndMarker,
 }
 
-ExpectedStringErrorData :: struct {
+ExpectedString :: struct {
 	expected: string,
 	actual:   string,
+	location: Location,
+}
+
+ExpectedEndMarkerError :: union {
+	ExpectedEndMarker,
+}
+
+ExpectedEndMarker :: struct {
+	expected: []string,
 	location: Location,
 }
 
@@ -154,7 +165,7 @@ tokenizer_expect_exact :: proc(
 
 	if read_token.token != expectation {
 		return SourceToken{},
-			ExpectedTokenErrorData{
+			ExpectedToken{
 				expected = expectation,
 				actual = read_token.token,
 				location = start_location,
@@ -184,7 +195,7 @@ tokenizer_expect :: proc(
 
 	if expectation_typeid != token_typeid {
 		return SourceToken{},
-			ExpectedTokenErrorData{
+			ExpectedToken{
 				expected = expectation,
 				actual = read_token.token,
 				location = start_location,
@@ -192,6 +203,38 @@ tokenizer_expect :: proc(
 	}
 
 	return read_token, nil
+}
+
+tokenizer_read_string_until :: proc(
+	tokenizer: ^Tokenizer,
+	end_markers: []string,
+) -> (
+	string: string,
+	error: ExpectedEndMarkerError,
+) {
+	start_location := Location {
+		source   = tokenizer.source,
+		position = tokenizer.position,
+		line     = tokenizer.line,
+		column   = tokenizer.column,
+	}
+	source := tokenizer.source[tokenizer.position:]
+	end_marker_index, _ := strings.index_multi(source, end_markers)
+	if end_marker_index == -1 {
+		return "", ExpectedEndMarker{expected = end_markers, location = start_location}
+	}
+
+	string = source[:end_marker_index]
+	tokenizer.position += len(string)
+	newline_count := strings.count(string, "\n")
+	tokenizer.line += newline_count
+	if newline_count > 0 {
+		tokenizer.column = 1
+	} else {
+		tokenizer.column += end_marker_index
+	}
+
+	return string, nil
 }
 
 tokenizer_skip_string :: proc(
@@ -210,7 +253,7 @@ tokenizer_skip_string :: proc(
 	source := tokenizer.source[tokenizer.position:]
 	if !strings.has_prefix(source, expected_string) {
 		return(
-			ExpectedStringErrorData{
+			ExpectedString{
 				expected = expected_string,
 				actual = source[:len(expected_string)],
 				location = start_location,
@@ -290,6 +333,10 @@ current :: proc(tokenizer: ^Tokenizer, modify: bool) -> (token: Token) {
 	tokenizer_copy := tokenizer^
 	defer if modify {
 		tokenizer^ = tokenizer_copy
+	}
+
+	if tokenizer_copy.position >= len(tokenizer_copy.source) {
+		return EOF{}
 	}
 
 	switch tokenizer_copy.source[tokenizer_copy.position] {
@@ -789,7 +836,7 @@ test_tokenizer_expect :: proc(t: ^testing.T) {
 
 	tokenizer2 := tokenizer_create("hello")
 	read_token, expectation_error = tokenizer_expect(&tokenizer2, UpperSymbol{})
-	expected_error := ExpectedTokenErrorData {
+	expected_error := ExpectedToken {
 		expected = UpperSymbol{},
 		actual = LowerSymbol{value = "hello"},
 		location = Location{position = 0, line = 1, column = 0, source = "hello"},
@@ -829,7 +876,7 @@ test_tokenizer_expect_exact :: proc(t: ^testing.T) {
 		&tokenizer2,
 		LowerSymbol{value = "world"},
 	)
-	expected_error := ExpectedTokenErrorData {
+	expected_error := ExpectedToken {
 		expected = LowerSymbol{value = "world"},
 		actual = LowerSymbol{value = "hello"},
 		location = Location{position = 0, line = 1, column = 0, source = "hello"},
@@ -839,4 +886,27 @@ test_tokenizer_expect_exact :: proc(t: ^testing.T) {
 		expectation_error == expected_error,
 		fmt.tprintf("Expected error: %v, got: %v", expected_error, expectation_error),
 	)
+}
+
+@(test, private = "package")
+test_tokenizer_string_until :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	tokenizer := tokenizer_create("hello\r\nworld")
+	read_string, expectation_error := tokenizer_read_string_until(&tokenizer, {"\r\n", "\n"})
+	testing.expect(
+		t,
+		expectation_error == nil,
+		fmt.tprintf("Unexpected error: %v", expectation_error),
+	)
+	testing.expect_value(t, read_string, "hello")
+
+	tokenizer2 := tokenizer_create("hello\nworld")
+	read_string, expectation_error = tokenizer_read_string_until(&tokenizer2, {"\r\n", "\n"})
+	testing.expect(
+		t,
+		expectation_error == nil,
+		fmt.tprintf("Unexpected error: %v", expectation_error),
+	)
+	testing.expect_value(t, read_string, "hello")
 }

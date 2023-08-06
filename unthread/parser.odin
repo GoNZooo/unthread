@@ -35,6 +35,7 @@ ParsingError :: union {
 	ExpectedTokenError,
 	ExpectedStringError,
 	ExpectedEndMarkerError,
+	ExpectedOneOfError,
 	mem.Allocator_Error,
 }
 
@@ -61,6 +62,110 @@ parse_lock_file :: proc(
 	error: ExpectationError,
 ) {
 	return
+}
+
+parse_lock_file_entry :: proc(
+	tokenizer: ^Tokenizer,
+	allocator := context.allocator,
+) -> (
+	lock_file_entry: LockFileEntry,
+	error: ParsingError,
+) {
+	lock_file_entry.names = parse_package_name_header(tokenizer, allocator) or_return
+	lock_file_entry.version = parse_version_line(tokenizer) or_return
+	lock_file_entry.resolution = parse_resolution_line(tokenizer) or_return
+	lock_file_entry.checksum = parse_checksum(tokenizer) or_return
+	lock_file_entry.language_name = parse_language_name(tokenizer) or_return
+	lock_file_entry.link_type = parse_link_type(tokenizer) or_return
+
+	return lock_file_entry, nil
+}
+
+@(test, private = "package")
+test_parse_lock_file_entry :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	lock_file_entry1 :=
+		`"@aashutoshrathi/word-wrap@npm:^1.2.3":
+  version: 1.2.6
+  resolution: "@aashutoshrathi/word-wrap@npm:1.2.6"
+  checksum: ada901b9e7c680d190f1d012c84217ce0063d8f5c5a7725bb91ec3c5ed99bb7572680eb2d2938a531ccbaec39a95422fcd8a6b4a13110c7d98dd75402f66a0cd
+  languageName: node
+  linkType: soft` +
+		"\n"
+	tokenizer := tokenizer_create(lock_file_entry1)
+	lock_file_entry, error := parse_lock_file_entry(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Expected error when parsing lock file entry to be `nil`, got: %v", error),
+	)
+
+	expected_names := []string{"@aashutoshrathi/word-wrap@npm:^1.2.3"}
+	testing.expect(
+		t,
+		slice.equal(lock_file_entry.names, expected_names),
+		fmt.tprintf(
+			"Expected lock file entry names to be equal, got: %v instead of %v",
+			lock_file_entry.names,
+			expected_names,
+		),
+	)
+
+	expected_version := "1.2.6"
+	testing.expect(
+		t,
+		lock_file_entry.version == expected_version,
+		fmt.tprintf(
+			"Expected lock file entry version to be equal, got: '%s' instead of '%s'",
+			lock_file_entry.version,
+			expected_version,
+		),
+	)
+
+	expected_resolution := "@aashutoshrathi/word-wrap@npm:1.2.6"
+	testing.expect(
+		t,
+		lock_file_entry.resolution == expected_resolution,
+		fmt.tprintf(
+			"Expected lock file entry resolution to be equal, got: '%s' instead of '%s'",
+			lock_file_entry.resolution,
+			expected_resolution,
+		),
+	)
+
+	expected_checksum := "ada901b9e7c680d190f1d012c84217ce0063d8f5c5a7725bb91ec3c5ed99bb7572680eb2d2938a531ccbaec39a95422fcd8a6b4a13110c7d98dd75402f66a0cd"
+	testing.expect(
+		t,
+		lock_file_entry.checksum == expected_checksum,
+		fmt.tprintf(
+			"Expected lock file entry checksum to be equal, got: '%s' instead of '%s'",
+			lock_file_entry.checksum,
+			expected_checksum,
+		),
+	)
+
+	expected_language_name := "node"
+	testing.expect(
+		t,
+		lock_file_entry.language_name == expected_language_name,
+		fmt.tprintf(
+			"Expected lock file entry language name to be equal, got: '%s' instead of '%s'",
+			lock_file_entry.language_name,
+			expected_language_name,
+		),
+	)
+
+	expected_link_type := LinkType.Soft
+	testing.expect(
+		t,
+		lock_file_entry.link_type == expected_link_type,
+		fmt.tprintf(
+			"Expected lock file entry link type to be equal, got: %v instead of %v",
+			lock_file_entry.link_type,
+			expected_link_type,
+		),
+	)
 }
 
 parse_package_name_header :: proc(
@@ -92,7 +197,7 @@ parse_package_names :: proc(
 	return names, nil
 }
 
-parse_package_name :: proc(tokenizer: ^Tokenizer) -> (name: string, error: ExpectationError) {
+parse_package_name :: proc(tokenizer: ^Tokenizer) -> (name: string, error: ParsingError) {
 	token, expect_error := tokenizer_expect(tokenizer, String{})
 	if expect_error != nil {
 		return "", expect_error
@@ -101,7 +206,7 @@ parse_package_name :: proc(tokenizer: ^Tokenizer) -> (name: string, error: Expec
 	return token.token.(String).value, nil
 }
 
-parse_version_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ExpectationError) {
+parse_version_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ParsingError) {
 	tokenizer_skip_any_of(tokenizer, {Space{}})
 	tokenizer_skip_string(tokenizer, "version: ") or_return
 	string := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
@@ -110,12 +215,7 @@ parse_version_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: Ex
 	return string, nil
 }
 
-parse_resolution_line :: proc(
-	tokenizer: ^Tokenizer,
-) -> (
-	version: string,
-	error: ExpectationError,
-) {
+parse_resolution_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ParsingError) {
 	tokenizer_skip_any_of(tokenizer, {Space{}})
 	tokenizer_skip_string(tokenizer, "resolution: ") or_return
 	token := tokenizer_expect(tokenizer, String{}) or_return
@@ -138,8 +238,8 @@ parse_dependencies :: proc(
 	dependencies_slice := make([dynamic]Dependency, 0, 0, allocator) or_return
 
 	for reading_deps {
-		dependency, error := parse_dependency_line(tokenizer)
-		if error != nil {
+		dependency, dependency_line_error := parse_dependency_line(tokenizer)
+		if dependency_line_error != nil {
 			reading_deps = false
 			continue
 		}
@@ -164,8 +264,8 @@ parse_peer_dependencies :: proc(
 	dependencies_slice := make([dynamic]Dependency, 0, 0, allocator) or_return
 
 	for reading_deps {
-		dependency, error := parse_dependency_line(tokenizer)
-		if error != nil {
+		dependency, dependency_line_error := parse_dependency_line(tokenizer)
+		if dependency_line_error != nil {
 			reading_deps = false
 			continue
 		}
@@ -180,7 +280,7 @@ parse_dependency_line :: proc(
 	tokenizer: ^Tokenizer,
 ) -> (
 	dependency: Dependency,
-	error: ExpectationError,
+	error: ParsingError,
 ) {
 	tokenizer_skip_string(tokenizer, "    ") or_return
 	peek_token := tokenizer_peek(tokenizer)
@@ -259,7 +359,7 @@ parse_dependency_meta :: proc(
 	return DependencyMeta{optional = token.token.(Boolean).value}, nil
 }
 
-parse_checksum :: proc(tokenizer: ^Tokenizer) -> (checksum: string, error: ExpectationError) {
+parse_checksum :: proc(tokenizer: ^Tokenizer) -> (checksum: string, error: ParsingError) {
 	tokenizer_skip_any_of(tokenizer, {Space{}})
 	tokenizer_skip_string(tokenizer, "checksum: ") or_return
 	checksum = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
@@ -272,7 +372,7 @@ parse_language_name :: proc(
 	tokenizer: ^Tokenizer,
 ) -> (
 	language_name: string,
-	error: ExpectationError,
+	error: ParsingError,
 ) {
 	tokenizer_skip_any_of(tokenizer, {Space{}})
 	tokenizer_skip_string(tokenizer, "languageName: ") or_return
@@ -282,7 +382,7 @@ parse_language_name :: proc(
 	return language_name, nil
 }
 
-parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: LinkType, error: ExpectationError) {
+parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: LinkType, error: ParsingError) {
 	tokenizer_skip_any_of(tokenizer, {Space{}})
 	tokenizer_skip_string(tokenizer, "linkType: ") or_return
 	token := tokenizer_expect(tokenizer, LowerSymbol{}) or_return

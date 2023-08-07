@@ -16,13 +16,16 @@ LockFile :: struct {
 
 LockFileEntry :: struct {
 	names:             []string,
+	// TODO(gonz): make this a `Version` union that is semver (+ maybe git ref) or `OtherVersion`
 	version:           string,
 	resolution:        string,
 	checksum:          string,
+	// TODO(gonz): make this a union that has some presets & an `OtherLanguage` option
 	language_name:     string,
 	link_type:         LinkType,
 	dependencies:      []Dependency,
 	peer_dependencies: []Dependency,
+	// TODO(gonz): make this `string` a `PackageName` type
 	dependencies_meta: map[string]DependencyMeta,
 }
 
@@ -57,11 +60,83 @@ parse_lock_file :: proc(
 	filename: string,
 	source: string,
 	tokenizer: ^Tokenizer,
+	allocator := context.allocator,
 ) -> (
 	lock_file: LockFile,
 	error: ExpectationError,
 ) {
 	return
+}
+
+@(test, private = "package")
+test_parse_lock_file :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	// TODO(gonz): Create this test
+	// remember:
+	//   __metadata:
+	//     version: 6
+	//     cacheKey: 8
+}
+
+parse_metadata :: proc(
+	tokenizer: ^Tokenizer,
+) -> (
+	version: int,
+	cache_key: int,
+	error: ParsingError,
+) {
+	tokenizer_skip_string(tokenizer, "__metadata:") or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+	tokenizer_skip_string(tokenizer, "  version:") or_return
+	tokenizer_skip_any_of(tokenizer, {Space{}})
+	version_token := tokenizer_expect(tokenizer, Integer{}) or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+	tokenizer_skip_string(tokenizer, "  cacheKey:") or_return
+	tokenizer_skip_any_of(tokenizer, {Space{}})
+	cache_key_token := tokenizer_expect(tokenizer, Integer{}) or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+
+	return version_token.token.(Integer).value, cache_key_token.token.(Integer).value, nil
+}
+
+@(test, private = "package")
+test_parse_metadata :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	metadata := `__metadata:
+  version: 6
+  cacheKey: 8` + "\n"
+
+	tokenizer := tokenizer_create(metadata)
+	version, cache_key, error := parse_metadata(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Expected error when parsing metadata to be `nil`, got: %v", error),
+	)
+
+	expected_version := 6
+	testing.expect(
+		t,
+		version == expected_version,
+		fmt.tprintf(
+			"Expected metadata version to be equal, got: '%s' instead of '%s'",
+			version,
+			expected_version,
+		),
+	)
+
+	expected_cache_key := 8
+	testing.expect(
+		t,
+		cache_key == expected_cache_key,
+		fmt.tprintf(
+			"Expected metadata cache key to be equal, got: '%s' instead of '%s'",
+			cache_key,
+			expected_cache_key,
+		),
+	)
 }
 
 parse_lock_file_entry :: proc(
@@ -804,7 +879,7 @@ parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: LinkType, error: P
 	} else if link_type_token.value == "soft" {
 		return LinkType.Soft, nil
 	} else {
-		// TODO: this should be an error received from the tokenizer for a `expect_one_of` call or
+		// TODO(gonz): this should be an error received from the tokenizer for a `expect_one_of` call or
 		// something like that
 		return link_type, ExpectedOneOfError(
 			ExpectedOneOf{

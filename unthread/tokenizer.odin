@@ -568,6 +568,7 @@ read_integer :: proc(tokenizer: ^Tokenizer) -> (token: Token) {
 		if tokenizer.position >= len(tokenizer.source) {
 			break
 		}
+		character = tokenizer.source[tokenizer.position]
 		switch character {
 		case '0' ..= '9':
 			tokenizer.position += 1

@@ -100,11 +100,11 @@ Tokenizer :: struct {
 	column:   int,
 }
 
-ExpectationError :: union #shared_nil {
-	ExpectedTokenError,
-	ExpectedStringError,
-	ExpectedEndMarkerError,
-	ExpectedOneOfError,
+ExpectationError :: union {
+	ExpectedToken,
+	ExpectedString,
+	ExpectedEndMarker,
+	ExpectedOneOf,
 }
 
 ExpectedTokenError :: union {
@@ -117,19 +117,10 @@ ExpectedToken :: struct {
 	location: Location,
 }
 
-ExpectedStringError :: union {
-	ExpectedString,
-	ExpectedEndMarker,
-}
-
 ExpectedString :: struct {
 	expected: string,
 	actual:   string,
 	location: Location,
-}
-
-ExpectedEndMarkerError :: union {
-	ExpectedEndMarker,
 }
 
 ExpectedEndMarker :: struct {
@@ -166,7 +157,7 @@ tokenizer_expect_exact :: proc(
 	expectation: Token,
 ) -> (
 	token: SourceToken,
-	error: ExpectedTokenError,
+	error: Maybe(ExpectedToken),
 ) {
 	start_location := Location {
 		source   = tokenizer.source,
@@ -193,7 +184,7 @@ tokenizer_expect :: proc(
 	expectation: Token,
 ) -> (
 	token: SourceToken,
-	error: ExpectedTokenError,
+	error: Maybe(ExpectedToken),
 ) {
 	start_location := Location {
 		source   = tokenizer.source,
@@ -223,7 +214,7 @@ tokenizer_read_string_until :: proc(
 	end_markers: []string,
 ) -> (
 	string: string,
-	error: ExpectedEndMarkerError,
+	error: Maybe(ExpectedEndMarker),
 ) {
 	start_location := Location {
 		source   = tokenizer.source,
@@ -254,7 +245,7 @@ tokenizer_skip_string :: proc(
 	tokenizer: ^Tokenizer,
 	expected_string: string,
 ) -> (
-	error: ExpectedStringError,
+	error: Maybe(ExpectedString),
 ) {
 	start_location := Location {
 		source   = tokenizer.source,

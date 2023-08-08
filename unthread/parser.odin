@@ -9,8 +9,8 @@ import "core:mem"
 
 LockFile :: struct {
 	filename:  string,
-	version:   string,
-	cache_key: string,
+	version:   int,
+	cache_key: int,
 	entries:   []LockFileEntry,
 }
 
@@ -34,11 +34,11 @@ LinkType :: enum {
 	Soft,
 }
 
-ParsingError :: union {
-	ExpectedTokenError,
-	ExpectedStringError,
-	ExpectedEndMarkerError,
-	ExpectedOneOfError,
+ParsingError :: union #shared_nil {
+	Maybe(ExpectedToken),
+	Maybe(ExpectedString),
+	Maybe(ExpectedEndMarker),
+	Maybe(ExpectedOneOf),
 	mem.Allocator_Error,
 }
 
@@ -63,20 +63,134 @@ parse_lock_file :: proc(
 	allocator := context.allocator,
 ) -> (
 	lock_file: LockFile,
-	error: ExpectationError,
+	error: ParsingError,
 ) {
-	return
+	version, cache_key := parse_metadata(tokenizer) or_return
+	tokenizer_expect(tokenizer, Newline{}) or_return
+	lock_file.filename = filename
+	lock_file.version = version
+	lock_file.cache_key = cache_key
+	entries := make([dynamic]LockFileEntry, 0, 10)
+
+	reading_entries := true
+	for reading_entries {
+		entry := parse_lock_file_entry(tokenizer) or_return
+		_, expect_newline_error := tokenizer_expect(tokenizer, Newline{})
+		if expect_newline_error != nil {
+			// NOTE: if we read an EOF instead of a newline we're still fine to finish the parse
+			// and jump out
+			_, is_eof := expect_newline_error.?.actual.(EOF)
+			if is_eof {
+				reading_entries = false
+			} else {
+				return LockFile{}, expect_newline_error
+			}
+		}
+		append(&entries, entry)
+	}
+
+	lock_file.entries = entries[:]
+
+	return lock_file, nil
 }
 
 @(test, private = "package")
 test_parse_lock_file :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
 
-	// TODO(gonz): Create this test
-	// remember:
-	//   __metadata:
-	//     version: 6
-	//     cacheKey: 8
+	lock_file1 :=
+		`__metadata:
+  version: 6
+  cacheKey: 8
+
+"@aashutoshrathi/word-wrap@npm:^1.2.3":
+  version: 1.2.6
+  resolution: "@aashutoshrathi/word-wrap@npm:1.2.6"
+  checksum: ada901b9e7c680d190f1d012c84217ce0063d8f5c5a7725bb91ec3c5ed99bb7572680eb2d2938a531ccbaec39a95422fcd8a6b4a13110c7d98dd75402f66a0cd
+  languageName: node
+  linkType: hard
+
+"@achingbrain/ip-address@npm:^8.1.0":
+  version: 8.1.0
+  resolution: "@achingbrain/ip-address@npm:8.1.0"
+  dependencies:
+    jsbn: 1.1.0
+    sprintf-js: 1.1.2
+  checksum: 2b845980a138faf9a5c1a58df2fcdba9e4bf0bc7a5b855bccaac9a61f6886d5707dd8e36ff59a4cfa2c83e29ee1518aae4579595e7534c7ebe01b91e07d86427
+  languageName: node
+  linkType: hard` +
+		"\n"
+
+	tokenizer := tokenizer_create(lock_file1)
+	lock_file, error := parse_lock_file("lock_file1", lock_file1, &tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Expected error when parsing lock file to be `nil`, got: %v", error),
+	)
+
+	testing.expect_value(t, lock_file.filename, "lock_file1")
+	testing.expect_value(t, lock_file.version, 6)
+	testing.expect_value(t, lock_file.cache_key, 8)
+
+	testing.expect_value(t, len(lock_file.entries), 2)
+	expected_entries := []LockFileEntry{
+		{
+			names = {"@aashutoshrathi/word-wrap@npm:^1.2.3"},
+			version = "1.2.6",
+			resolution = "@aashutoshrathi/word-wrap@npm:1.2.6",
+			checksum = "ada901b9e7c680d190f1d012c84217ce0063d8f5c5a7725bb91ec3c5ed99bb7572680eb2d2938a531ccbaec39a95422fcd8a6b4a13110c7d98dd75402f66a0cd",
+			language_name = "node",
+			link_type = LinkType.Hard,
+		},
+		{
+			names = {"@achingbrain/ip-address@npm:^8.1.0"},
+			version = "8.1.0",
+			resolution = "@achingbrain/ip-address@npm:8.1.0",
+			dependencies = {
+				{name = "jsbn", bounds = "1.1.0"},
+				{name = "sprintf-js", bounds = "1.1.2"},
+			},
+			checksum = "2b845980a138faf9a5c1a58df2fcdba9e4bf0bc7a5b855bccaac9a61f6886d5707dd8e36ff59a4cfa2c83e29ee1518aae4579595e7534c7ebe01b91e07d86427",
+			language_name = "node",
+			link_type = LinkType.Hard,
+		},
+	}
+	for entry, i in expected_entries {
+		testing.expect(
+			t,
+			slice.equal(lock_file.entries[i].names, entry.names),
+			fmt.tprintf(
+				"Expected names to be equal, got: %v instead of %v",
+				lock_file.entries[i].names,
+				entry.names,
+			),
+		)
+		testing.expect_value(t, lock_file.entries[i].version, entry.version)
+		testing.expect_value(t, lock_file.entries[i].resolution, entry.resolution)
+		testing.expect_value(t, lock_file.entries[i].checksum, entry.checksum)
+		testing.expect_value(t, lock_file.entries[i].language_name, entry.language_name)
+		testing.expect_value(t, lock_file.entries[i].link_type, entry.link_type)
+		testing.expect(
+			t,
+			slice.equal(lock_file.entries[i].dependencies, entry.dependencies),
+			fmt.tprintf(
+				"Expected dependencies to be equal, got: %v instead of %v",
+				lock_file.entries[i].dependencies,
+				entry.dependencies,
+			),
+		)
+		testing.expect(
+			t,
+			slice.equal(lock_file.entries[i].peer_dependencies, entry.peer_dependencies),
+			fmt.tprintf(
+				"Expected peer dependencies to be equal, got: %v instead of %v",
+				lock_file.entries[i].peer_dependencies,
+				entry.peer_dependencies,
+			),
+		)
+
+	}
 }
 
 parse_metadata :: proc(
@@ -149,6 +263,17 @@ parse_lock_file_entry :: proc(
 	lock_file_entry.names = parse_package_name_header(tokenizer, allocator) or_return
 	lock_file_entry.version = parse_version_line(tokenizer) or_return
 	lock_file_entry.resolution = parse_resolution_line(tokenizer) or_return
+	dependencies, dependencies_error := parse_dependencies(tokenizer, allocator)
+	#partial switch e in dependencies_error {
+	case Maybe(ExpectedString):
+		if e != nil && e.?.expected != "dependencies:" {
+			return LockFileEntry{}, dependencies_error
+		}
+	case nil:
+	case:
+		return LockFileEntry{}, dependencies_error
+	}
+	lock_file_entry.dependencies = dependencies
 	lock_file_entry.checksum = parse_checksum(tokenizer) or_return
 	lock_file_entry.language_name = parse_language_name(tokenizer) or_return
 	lock_file_entry.link_type = parse_link_type(tokenizer) or_return
@@ -881,11 +1006,11 @@ parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: LinkType, error: P
 	} else {
 		// TODO(gonz): this should be an error received from the tokenizer for a `expect_one_of` call or
 		// something like that
-		return link_type, ExpectedOneOfError(
-			ExpectedOneOf{
-				expected = {LowerSymbol{value = "hard"}, LowerSymbol{value = "soft"}},
-				actual = link_type_token,
-			},
+		return link_type, Maybe(ExpectedOneOf)(
+		ExpectedOneOf{
+			expected = {LowerSymbol{value = "hard"}, LowerSymbol{value = "soft"}},
+			actual = link_type_token,
+		},
 		)
 	}
 }
@@ -937,8 +1062,8 @@ parse_binaries :: proc(
 	binaries_slice := make([dynamic]Binary, 0, 0, allocator) or_return
 
 	for reading_binaries {
-		binary, error := parse_binary_line(tokenizer)
-		if error != nil {
+		binary, binary_line_error := parse_binary_line(tokenizer)
+		if binary_line_error != nil {
 			reading_binaries = false
 			continue
 		}
@@ -1003,7 +1128,7 @@ test_parse_binaries :: proc(t: ^testing.T) {
 	testing.expect_value(t, rest_of_source, "")
 }
 
-parse_binary_line :: proc(tokenizer: ^Tokenizer) -> (binary: Binary, error: ExpectationError) {
+parse_binary_line :: proc(tokenizer: ^Tokenizer) -> (binary: Binary, error: ParsingError) {
 	tokenizer_skip_string(tokenizer, "    ") or_return
 	name := tokenizer_read_string_until(tokenizer, {":"}) or_return
 	tokenizer_skip_any_of(tokenizer, {Colon{}, Space{}})

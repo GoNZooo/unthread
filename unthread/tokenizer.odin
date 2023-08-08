@@ -29,6 +29,8 @@ Token :: union {
 	Colon,
 	Comma,
 	Dot,
+	Underscore,
+	Comment,
 	UpperSymbol,
 	LowerSymbol,
 	String,
@@ -55,6 +57,8 @@ Caret :: struct {}
 Colon :: struct {}
 Comma :: struct {}
 Dot :: struct {}
+Underscore :: struct {}
+Comment :: struct {}
 
 UpperSymbol :: struct {
 	value: string,
@@ -88,11 +92,13 @@ Boolean :: struct {
 	value: bool,
 }
 
+
 /*
   A mutable structure that keeps track of and allows operations for looking at,
   consuming and expecting tokens. Created with `tokenizer_create`.
 */
 Tokenizer :: struct {
+	filename: string,
 	source:   string,
 	index:    int,
 	position: int,
@@ -143,13 +149,12 @@ Location :: struct {
 	column:      int,
 	position:    int, // byte offset in source
 	source_file: string,
-	source:      string,
 }
 
 // Creates a `Tokenizer` from a given source string. Use `tokenizer_peek`, `tokenizer_next_token`
 // and `tokenizer_expect` variants to read tokens from a `Tokenizer`.
-tokenizer_create :: proc(source: string) -> Tokenizer {
-	return Tokenizer{source = source, line = 1}
+tokenizer_create :: proc(source: string, filename := "") -> Tokenizer {
+	return Tokenizer{source = source, line = 1, filename = filename}
 }
 
 tokenizer_expect_exact :: proc(
@@ -160,7 +165,6 @@ tokenizer_expect_exact :: proc(
 	error: Maybe(ExpectedToken),
 ) {
 	start_location := Location {
-		source   = tokenizer.source,
 		position = tokenizer.position,
 		line     = tokenizer.line,
 		column   = tokenizer.column,
@@ -187,7 +191,6 @@ tokenizer_expect :: proc(
 	error: Maybe(ExpectedToken),
 ) {
 	start_location := Location {
-		source   = tokenizer.source,
 		position = tokenizer.position,
 		line     = tokenizer.line,
 		column   = tokenizer.column,
@@ -217,7 +220,6 @@ tokenizer_read_string_until :: proc(
 	error: Maybe(ExpectedEndMarker),
 ) {
 	start_location := Location {
-		source   = tokenizer.source,
 		position = tokenizer.position,
 		line     = tokenizer.line,
 		column   = tokenizer.column,
@@ -248,7 +250,6 @@ tokenizer_skip_string :: proc(
 	error: Maybe(ExpectedString),
 ) {
 	start_location := Location {
-		source   = tokenizer.source,
 		position = tokenizer.position,
 		line     = tokenizer.line,
 		column   = tokenizer.column,
@@ -346,6 +347,17 @@ current :: proc(tokenizer: ^Tokenizer, modify: bool) -> (token: Token) {
 	}
 
 	switch tokenizer_copy.source[tokenizer_copy.position] {
+	case '#':
+		next_newline_index := strings.index(tokenizer_copy.source[tokenizer_copy.position:], "\n")
+		if next_newline_index == -1 {
+			tokenizer.position = len(tokenizer.source)
+
+			return EOF{}
+		}
+
+		tokenizer_copy.position += next_newline_index
+
+		return Comment{}
 	case ' ':
 		tokenizer_copy.position += 1
 		tokenizer_copy.column += 1
@@ -420,6 +432,11 @@ current :: proc(tokenizer: ^Tokenizer, modify: bool) -> (token: Token) {
 		tokenizer_copy.column += 1
 
 		return Dot{}
+	case '_':
+		tokenizer_copy.position += 1
+		tokenizer_copy.column += 1
+
+		return Underscore{}
 	case '0' ..= '9':
 		float := read_float(&tokenizer_copy)
 		if float != nil {
@@ -532,8 +549,6 @@ read_float :: proc(tokenizer: ^Tokenizer) -> (token: Token) {
 	slice := tokenizer.source[start:new_position]
 	float_value, parse_ok := strconv.parse_f64(slice)
 	if !parse_ok {
-		log.errorf("Failed to parse float ('%s') with state: %v", slice, tokenizer)
-
 		return nil
 	}
 
@@ -851,7 +866,7 @@ test_tokenizer_expect :: proc(t: ^testing.T) {
 	expected_error := ExpectedToken {
 		expected = UpperSymbol{},
 		actual = LowerSymbol{value = "hello"},
-		location = Location{position = 0, line = 1, column = 0, source = "hello"},
+		location = Location{position = 0, line = 1, column = 0},
 	}
 	testing.expect(
 		t,
@@ -891,7 +906,7 @@ test_tokenizer_expect_exact :: proc(t: ^testing.T) {
 	expected_error := ExpectedToken {
 		expected = LowerSymbol{value = "world"},
 		actual = LowerSymbol{value = "hello"},
-		location = Location{position = 0, line = 1, column = 0, source = "hello"},
+		location = Location{position = 0, line = 1, column = 0},
 	}
 	testing.expect(
 		t,

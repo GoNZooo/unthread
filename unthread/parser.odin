@@ -1,5 +1,8 @@
 package unthread
 
+import "core:time"
+import "core:mem/virtual"
+import "core:os"
 import "core:strings"
 import "core:testing"
 import "core:fmt"
@@ -15,18 +18,21 @@ LockFile :: struct {
 }
 
 LockFileEntry :: struct {
-	names:             []string,
+	names:                  []string,
 	// TODO(gonz): make this a `Version` union that is semver (+ maybe git ref) or `OtherVersion`
-	version:           string,
-	resolution:        string,
-	checksum:          string,
+	version:                string,
+	resolution:             string,
+	conditions:             string,
+	checksum:               string,
 	// TODO(gonz): make this a union that has some presets & an `OtherLanguage` option
-	language_name:     string,
-	link_type:         LinkType,
-	dependencies:      []Dependency,
-	peer_dependencies: []Dependency,
+	language_name:          string,
+	link_type:              LinkType,
+	dependencies:           []Dependency,
+	binaries:               []Binary,
+	peer_dependencies:      []Dependency,
 	// TODO(gonz): make this `string` a `PackageName` type
-	dependencies_meta: map[string]DependencyMeta,
+	dependencies_meta:      map[string]DependencyMeta,
+	peer_dependencies_meta: map[string]DependencyMeta,
 }
 
 LinkType :: enum {
@@ -65,28 +71,24 @@ parse_lock_file :: proc(
 	lock_file: LockFile,
 	error: ParsingError,
 ) {
+	tokenizer_skip_any_of(tokenizer, {Comment{}, Newline{}})
 	version, cache_key := parse_metadata(tokenizer) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 	lock_file.filename = filename
 	lock_file.version = version
 	lock_file.cache_key = cache_key
-	entries := make([dynamic]LockFileEntry, 0, 10)
+	entries := make([dynamic]LockFileEntry, 0, 1024, allocator) or_return
 
-	reading_entries := true
-	for reading_entries {
-		entry := parse_lock_file_entry(tokenizer) or_return
-		_, expect_newline_error := tokenizer_expect(tokenizer, Newline{})
-		if expect_newline_error != nil {
-			// NOTE: if we read an EOF instead of a newline we're still fine to finish the parse
-			// and jump out
-			_, is_eof := expect_newline_error.?.actual.(EOF)
-			if is_eof {
-				reading_entries = false
-			} else {
-				return LockFile{}, expect_newline_error
-			}
-		}
+	for {
+		entry := parse_lock_file_entry(tokenizer, allocator) or_return
 		append(&entries, entry)
+		peek_token := tokenizer_peek(tokenizer)
+		_, is_eof := peek_token.(EOF)
+		// NOTE: if we read an EOF instead of a newline we're still fine to finish the parse
+		// and jump out
+		if is_eof {
+			break
+		}
 	}
 
 	lock_file.entries = entries[:]
@@ -128,12 +130,10 @@ test_parse_lock_file :: proc(t: ^testing.T) {
 		error == nil,
 		fmt.tprintf("Expected error when parsing lock file to be `nil`, got: %v", error),
 	)
-
 	testing.expect_value(t, lock_file.filename, "lock_file1")
 	testing.expect_value(t, lock_file.version, 6)
 	testing.expect_value(t, lock_file.cache_key, 8)
 
-	testing.expect_value(t, len(lock_file.entries), 2)
 	expected_entries := []LockFileEntry{
 		{
 			names = {"@aashutoshrathi/word-wrap@npm:^1.2.3"},
@@ -156,6 +156,10 @@ test_parse_lock_file :: proc(t: ^testing.T) {
 			link_type = LinkType.Hard,
 		},
 	}
+	testing.expect_value(t, len(lock_file.entries), len(expected_entries))
+	if len(lock_file.entries) != len(expected_entries) {
+		return
+	}
 	for entry, i in expected_entries {
 		testing.expect(
 			t,
@@ -168,6 +172,7 @@ test_parse_lock_file :: proc(t: ^testing.T) {
 		)
 		testing.expect_value(t, lock_file.entries[i].version, entry.version)
 		testing.expect_value(t, lock_file.entries[i].resolution, entry.resolution)
+		testing.expect_value(t, lock_file.entries[i].conditions, entry.conditions)
 		testing.expect_value(t, lock_file.entries[i].checksum, entry.checksum)
 		testing.expect_value(t, lock_file.entries[i].language_name, entry.language_name)
 		testing.expect_value(t, lock_file.entries[i].link_type, entry.link_type)
@@ -182,6 +187,15 @@ test_parse_lock_file :: proc(t: ^testing.T) {
 		)
 		testing.expect(
 			t,
+			slice.equal(lock_file.entries[i].binaries, entry.binaries),
+			fmt.tprintf(
+				"Expected binaries to be equal, got: %v instead of %v",
+				lock_file.entries[i].binaries,
+				entry.binaries,
+			),
+		)
+		testing.expect(
+			t,
 			slice.equal(lock_file.entries[i].peer_dependencies, entry.peer_dependencies),
 			fmt.tprintf(
 				"Expected peer dependencies to be equal, got: %v instead of %v",
@@ -189,8 +203,30 @@ test_parse_lock_file :: proc(t: ^testing.T) {
 				entry.peer_dependencies,
 			),
 		)
-
 	}
+
+	arena: virtual.Arena
+	arena_init_error := virtual.arena_init_static(&arena, 1024 * 1024 * 4)
+	if arena_init_error != nil {
+		log.panicf("Failed to initialize arena: %v\n", arena_init_error)
+	}
+	allocator := virtual.arena_allocator(&arena)
+	test_file_path :: "./test_data/test_file_1.lock"
+	lock_file2, read_success := os.read_entire_file_from_filename(test_file_path, allocator)
+	if !read_success {
+		log.panicf("Failed to read test file '%s': %v", test_file_path)
+	}
+
+	tokenizer = tokenizer_create(string(lock_file2), test_file_path)
+	start_time := time.tick_now()
+	lock_file, error = parse_lock_file(test_file_path, string(lock_file2), &tokenizer, allocator)
+	end_time := time.tick_now()
+	log.infof("Time taken to parse lock file: %v", time.tick_diff(start_time, end_time))
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Expected error when parsing lock file to be `nil`, got: %v", error),
+	)
 }
 
 parse_metadata :: proc(
@@ -261,22 +297,69 @@ parse_lock_file_entry :: proc(
 	error: ParsingError,
 ) {
 	lock_file_entry.names = parse_package_name_header(tokenizer, allocator) or_return
-	lock_file_entry.version = parse_version_line(tokenizer) or_return
-	lock_file_entry.resolution = parse_resolution_line(tokenizer) or_return
-	dependencies, dependencies_error := parse_dependencies(tokenizer, allocator)
-	#partial switch e in dependencies_error {
-	case Maybe(ExpectedString):
-		if e != nil && e.?.expected != "dependencies:" {
-			return LockFileEntry{}, dependencies_error
+
+	reading_fields := true
+	for reading_fields {
+		tokenizer_skip_any_of(tokenizer, {Space{}})
+		symbol_token, symbol_read_error := tokenizer_expect(tokenizer, LowerSymbol{})
+		if symbol_read_error != nil {
+			reading_fields = false
+			break
 		}
-	case nil:
-	case:
-		return LockFileEntry{}, dependencies_error
+		tokenizer_expect(tokenizer, Colon{}) or_return
+
+		field_name := symbol_token.token.(LowerSymbol).value
+		switch field_name {
+		case "version":
+			tokenizer_expect(tokenizer, Space{}) or_return
+			lock_file_entry.version = parse_version(tokenizer) or_return
+		case "resolution":
+			tokenizer_expect(tokenizer, Space{}) or_return
+			lock_file_entry.resolution = parse_resolution(tokenizer) or_return
+		case "conditions":
+			tokenizer_expect(tokenizer, Space{}) or_return
+			lock_file_entry.conditions = parse_conditions(tokenizer) or_return
+		case "checksum":
+			tokenizer_expect(tokenizer, Space{}) or_return
+			lock_file_entry.checksum = parse_checksum(tokenizer) or_return
+		case "languageName":
+			tokenizer_expect(tokenizer, Space{}) or_return
+			lock_file_entry.language_name = parse_language_name(tokenizer) or_return
+		case "linkType":
+			tokenizer_expect(tokenizer, Space{}) or_return
+			lock_file_entry.link_type = parse_link_type(tokenizer) or_return
+		case "dependencies":
+			tokenizer_expect(tokenizer, Newline{}) or_return
+			lock_file_entry.dependencies = parse_dependencies(tokenizer, allocator) or_return
+		case "peerDependencies":
+			tokenizer_expect(tokenizer, Newline{}) or_return
+			lock_file_entry.peer_dependencies = parse_peer_dependencies(
+				tokenizer,
+				allocator,
+			) or_return
+		case "dependenciesMeta":
+			tokenizer_expect(tokenizer, Newline{}) or_return
+			lock_file_entry.dependencies_meta = parse_dependencies_meta(
+				tokenizer,
+				allocator,
+			) or_return
+		case "peerDependenciesMeta":
+			tokenizer_expect(tokenizer, Newline{}) or_return
+			lock_file_entry.peer_dependencies_meta = parse_dependencies_meta(
+				tokenizer,
+				allocator,
+			) or_return
+		case "bin":
+			tokenizer_expect(tokenizer, Newline{}) or_return
+			lock_file_entry.binaries = parse_binaries(tokenizer, allocator) or_return
+		case:
+			log.panicf(
+				"Unexpected field name '%s' in lock file entry (file: '%s')",
+				field_name,
+				tokenizer.filename,
+			)
+		}
 	}
-	lock_file_entry.dependencies = dependencies
-	lock_file_entry.checksum = parse_checksum(tokenizer) or_return
-	lock_file_entry.language_name = parse_language_name(tokenizer) or_return
-	lock_file_entry.link_type = parse_link_type(tokenizer) or_return
 
 	return lock_file_entry, nil
 }
@@ -497,9 +580,7 @@ test_parse_package_name :: proc(t: ^testing.T) {
 	testing.expect_value(t, name, "@aashutoshrathi/word-wrap@npm:1.2.6")
 }
 
-parse_version_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ParsingError) {
-	tokenizer_skip_any_of(tokenizer, {Space{}})
-	tokenizer_skip_string(tokenizer, "version: ") or_return
+parse_version :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ParsingError) {
 	string := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
 	tokenizer_skip_any_of(tokenizer, {Newline{}})
 
@@ -507,11 +588,11 @@ parse_version_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: Pa
 }
 
 @(test, private = "package")
-test_parse_version_line :: proc(t: ^testing.T) {
+test_parse_version :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
 
-	tokenizer := tokenizer_create("version: 1.2.3\n")
-	version, error := parse_version_line(&tokenizer)
+	tokenizer := tokenizer_create("1.2.3\n")
+	version, error := parse_version(&tokenizer)
 	testing.expect(
 		t,
 		error == nil,
@@ -524,9 +605,7 @@ test_parse_version_line :: proc(t: ^testing.T) {
 	testing.expect_value(t, rest_of_source, "")
 }
 
-parse_resolution_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ParsingError) {
-	tokenizer_skip_any_of(tokenizer, {Space{}})
-	tokenizer_skip_string(tokenizer, "resolution: ") or_return
+parse_resolution :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ParsingError) {
 	token := tokenizer_expect(tokenizer, String{}) or_return
 	tokenizer_skip_any_of(tokenizer, {Newline{}})
 
@@ -534,11 +613,11 @@ parse_resolution_line :: proc(tokenizer: ^Tokenizer) -> (version: string, error:
 }
 
 @(test, private = "package")
-test_parse_resolution_line :: proc(t: ^testing.T) {
+test_parse_resolution :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
 
-	tokenizer := tokenizer_create(`resolution: "@babel/code-frame@npm:7.22.5"` + "\n")
-	resolution, error := parse_resolution_line(&tokenizer)
+	tokenizer := tokenizer_create(`"@babel/code-frame@npm:7.22.5"` + "\n")
+	resolution, error := parse_resolution(&tokenizer)
 	testing.expect(
 		t,
 		error == nil,
@@ -551,6 +630,13 @@ test_parse_resolution_line :: proc(t: ^testing.T) {
 	testing.expect_value(t, rest_of_source, "")
 }
 
+parse_conditions :: proc(tokenizer: ^Tokenizer) -> (conditions: string, error: ParsingError) {
+	conditions = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	tokenizer_skip_any_of(tokenizer, {Newline{}})
+
+	return conditions, nil
+}
+
 parse_dependencies :: proc(
 	tokenizer: ^Tokenizer,
 	allocator := context.allocator,
@@ -558,11 +644,8 @@ parse_dependencies :: proc(
 	dependencies: []Dependency,
 	error: ParsingError,
 ) {
-	tokenizer_skip_any_of(tokenizer, {Space{}})
-	tokenizer_skip_string(tokenizer, "dependencies:") or_return
-	tokenizer_expect(tokenizer, Newline{}) or_return
 	reading_deps := true
-	dependencies_slice := make([dynamic]Dependency, 0, 0, allocator) or_return
+	dependencies_slice := make([dynamic]Dependency, 0, 20, allocator) or_return
 
 	for reading_deps {
 		dependency, dependency_line_error := parse_dependency_line(tokenizer)
@@ -581,8 +664,7 @@ parse_dependencies :: proc(
 test_parse_dependencies :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
 
-	dependencies1 := `  dependencies:
-    "@babel/highlight": ^7.22.5` + "\n"
+	dependencies1 := `    "@babel/highlight": 7.22.5` + "\n"
 	tokenizer := tokenizer_create(dependencies1)
 	dependencies, error := parse_dependencies(&tokenizer)
 	testing.expect(
@@ -593,15 +675,14 @@ test_parse_dependencies :: proc(t: ^testing.T) {
 
 	testing.expect(
 		t,
-		slice.equal(dependencies, []Dependency{{name = "@babel/highlight", bounds = "^7.22.5"}}),
+		slice.equal(dependencies, []Dependency{{name = "@babel/highlight", bounds = "7.22.5"}}),
 		fmt.tprintf(
 			"Parsed dependencies are not equal to expected dependencies, got: %v\n",
 			dependencies,
 		),
 	)
 
-	dependencies2 := `  dependencies:
-    "@ampproject/remapping": ^2.2.0
+	dependencies2 := `    "@ampproject/remapping": ^2.2.0
     "@babel/code-frame": ^7.22.5
     "@babel/generator": ^7.22.9
     "@babel/helper-compilation-targets": ^7.22.9
@@ -612,7 +693,7 @@ test_parse_dependencies :: proc(t: ^testing.T) {
     "@babel/traverse": ^7.22.8
     "@babel/types": ^7.22.5
     convert-source-map: ^1.7.0
-    debug: ^4.1.0
+    debug: 4.1.0
     gensync: ^1.0.0-beta.2
     json5: ^2.2.2
     semver: ^6.3.1
@@ -641,7 +722,7 @@ test_parse_dependencies :: proc(t: ^testing.T) {
 				{name = "@babel/traverse", bounds = "^7.22.8"},
 				{name = "@babel/types", bounds = "^7.22.5"},
 				{name = "convert-source-map", bounds = "^1.7.0"},
-				{name = "debug", bounds = "^4.1.0"},
+				{name = "debug", bounds = "4.1.0"},
 				{name = "gensync", bounds = "^1.0.0-beta.2"},
 				{name = "json5", bounds = "^2.2.2"},
 				{name = "semver", bounds = "^6.3.1"},
@@ -661,11 +742,8 @@ parse_peer_dependencies :: proc(
 	dependencies: []Dependency,
 	error: ParsingError,
 ) {
-	tokenizer_skip_any_of(tokenizer, {Space{}})
-	tokenizer_skip_string(tokenizer, "peerDependencies:") or_return
-	tokenizer_expect(tokenizer, Newline{}) or_return
 	reading_deps := true
-	dependencies_slice := make([dynamic]Dependency, 0, 0, allocator) or_return
+	dependencies_slice := make([dynamic]Dependency, 0, 20, allocator) or_return
 
 	for reading_deps {
 		dependency, dependency_line_error := parse_dependency_line(tokenizer)
@@ -684,8 +762,7 @@ parse_peer_dependencies :: proc(
 test_parse_peer_dependencies :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
 
-	dependencies1 := `  peerDependencies:
-    "@swc/helpers": ^0.5.05` + "\n"
+	dependencies1 := `    "@swc/helpers": ^0.5.05` + "\n"
 	tokenizer := tokenizer_create(dependencies1)
 	dependencies, error := parse_peer_dependencies(&tokenizer)
 	testing.expect(
@@ -704,8 +781,7 @@ test_parse_peer_dependencies :: proc(t: ^testing.T) {
 	)
 
 	dependencies2 :=
-		`  peerDependencies:
-    react: ^16.8.0 || ^17.0.0 || ^18.0.0
+		`    react: ^16.8.0 || ^17.0.0 || ^18.0.0
     react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0` +
 		"\n"
 	tokenizer = tokenizer_create(dependencies2)
@@ -754,7 +830,8 @@ parse_dependency_line :: proc(
 
 	token := tokenizer_expect(tokenizer, String{}) or_return
 	name := token.token.(String).value
-	tokenizer_skip_any_of(tokenizer, {Colon{}, Space{}})
+	tokenizer_expect(tokenizer, Colon{})
+	tokenizer_expect(tokenizer, Space{})
 	bounds := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
@@ -768,8 +845,6 @@ parse_dependencies_meta :: proc(
 	dependencies_meta: map[string]DependencyMeta,
 	error: ParsingError,
 ) {
-	tokenizer_skip_string(tokenizer, "  dependenciesMeta:") or_return
-	tokenizer_expect(tokenizer, Newline{}) or_return
 	reading_meta := true
 	dependencies_meta = make(map[string]DependencyMeta, 0, allocator) or_return
 
@@ -804,8 +879,7 @@ test_parse_dependencies_meta :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
 
 	dependencies_meta1 :=
-		`  dependenciesMeta:
-    "@esbuild/android-arm":
+		`    "@esbuild/android-arm":
       optional: true
     "@esbuild/android-arm64":
       optional: true
@@ -925,8 +999,6 @@ parse_dependency_meta :: proc(
 }
 
 parse_checksum :: proc(tokenizer: ^Tokenizer) -> (checksum: string, error: ParsingError) {
-	tokenizer_skip_any_of(tokenizer, {Space{}})
-	tokenizer_skip_string(tokenizer, "checksum: ") or_return
 	checksum = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
@@ -938,7 +1010,7 @@ test_parse_checksum :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
 
 	checksum1 :=
-		`  checksum: 7bf069aeceb417902c4efdaefab1f7b94adb7dea694a9aed1bda2edf4135348a080820529b1a300c6f8605740a00ca00c19b2d5e74b5dd489d99d8c11d5e56d1` +
+		`7bf069aeceb417902c4efdaefab1f7b94adb7dea694a9aed1bda2edf4135348a080820529b1a300c6f8605740a00ca00c19b2d5e74b5dd489d99d8c11d5e56d1` +
 		"\n"
 	tokenizer := tokenizer_create(checksum1)
 	checksum, error := parse_checksum(&tokenizer)
@@ -964,8 +1036,6 @@ parse_language_name :: proc(
 	language_name: string,
 	error: ParsingError,
 ) {
-	tokenizer_skip_any_of(tokenizer, {Space{}})
-	tokenizer_skip_string(tokenizer, "languageName: ") or_return
 	language_name = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
@@ -976,7 +1046,7 @@ parse_language_name :: proc(
 test_parse_language_name :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
 
-	language_name1 := `  languageName: node` + "\n"
+	language_name1 := `node` + "\n"
 	tokenizer := tokenizer_create(language_name1)
 	language_name, error := parse_language_name(&tokenizer)
 	testing.expect(
@@ -992,8 +1062,6 @@ test_parse_language_name :: proc(t: ^testing.T) {
 }
 
 parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: LinkType, error: ParsingError) {
-	tokenizer_skip_any_of(tokenizer, {Space{}})
-	tokenizer_skip_string(tokenizer, "linkType: ") or_return
 	token := tokenizer_expect(tokenizer, LowerSymbol{}) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
@@ -1019,7 +1087,7 @@ parse_link_type :: proc(tokenizer: ^Tokenizer) -> (link_type: LinkType, error: P
 test_parse_link_type :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
 
-	link_type1 := `  linkType: hard` + "\n"
+	link_type1 := `hard` + "\n"
 	tokenizer := tokenizer_create(link_type1)
 	link_type, error := parse_link_type(&tokenizer)
 	testing.expect(
@@ -1033,7 +1101,7 @@ test_parse_link_type :: proc(t: ^testing.T) {
 	rest_of_source := tokenizer.source[tokenizer.position:]
 	testing.expect_value(t, rest_of_source, "")
 
-	link_type2 := `  linkType: soft` + "\n"
+	link_type2 := `soft` + "\n"
 	tokenizer = tokenizer_create(link_type2)
 	link_type, error = parse_link_type(&tokenizer)
 	testing.expect(
@@ -1055,11 +1123,8 @@ parse_binaries :: proc(
 	binaries: []Binary,
 	error: ParsingError,
 ) {
-	tokenizer_skip_any_of(tokenizer, {Space{}})
-	tokenizer_skip_string(tokenizer, "bin:") or_return
-	tokenizer_expect(tokenizer, Newline{}) or_return
 	reading_binaries := true
-	binaries_slice := make([dynamic]Binary, 0, 0, allocator) or_return
+	binaries_slice := make([dynamic]Binary, 0, 5, allocator) or_return
 
 	for reading_binaries {
 		binary, binary_line_error := parse_binary_line(tokenizer)
@@ -1077,9 +1142,7 @@ parse_binaries :: proc(
 @(test, private = "package")
 test_parse_binaries :: proc(t: ^testing.T) {
 	context.logger = log.create_console_logger()
-
-	binaries1 := `  bin:
-    prettierd: bin/prettierd` + "\n"
+	binaries1 := `    prettierd: bin/prettierd` + "\n"
 	tokenizer := tokenizer_create(binaries1)
 	binaries, error := parse_binaries(&tokenizer)
 	testing.expect(
@@ -1098,11 +1161,9 @@ test_parse_binaries :: proc(t: ^testing.T) {
 	testing.expect_value(t, rest_of_source, "")
 
 	binaries2 :=
-		`  bin:
-    getstorybook: ./bin/index.js
+		`    getstorybook: ./bin/index.js
     sb: ./bin/index.js
-    third: bin/third.js` +
-		"\n"
+    third: bin/third.js` + "\n"
 	tokenizer = tokenizer_create(binaries2)
 	binaries, error = parse_binaries(&tokenizer)
 	testing.expect(

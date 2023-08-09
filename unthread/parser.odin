@@ -231,6 +231,11 @@ test_parse_lock_file :: proc(t: ^testing.T) {
 		error == nil,
 		fmt.tprintf("Expected error when parsing lock file to be `nil`, got: %v", error),
 	)
+
+	testing.expect_value(t, lock_file.version, 6)
+	testing.expect_value(t, lock_file.cache_key, 8)
+	testing.expect_value(t, lock_file.filename, test_file_path)
+	testing.expect_value(t, len(lock_file.entries), 1754)
 }
 
 parse_metadata :: proc(

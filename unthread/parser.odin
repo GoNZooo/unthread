@@ -206,7 +206,11 @@ test_parse_lock_file :: proc(t: ^testing.T) {
 	}
 
 	arena: virtual.Arena
-	arena_init_error := virtual.arena_init_static(&arena, 1024 * 1024 * 4)
+	arena_bytes, bytes_alloc_error := make([]byte, 1024 * 1024 * 10)
+	if bytes_alloc_error != nil {
+		log.panicf("Failed to allocate bytes for arena: %v\n", bytes_alloc_error)
+	}
+	arena_init_error := virtual.arena_init_buffer(&arena, arena_bytes)
 	if arena_init_error != nil {
 		log.panicf("Failed to initialize arena: %v\n", arena_init_error)
 	}
@@ -376,6 +380,7 @@ test_parse_lock_file_entry :: proc(t: ^testing.T) {
   languageName: node
   linkType: soft` +
 		"\n"
+
 	tokenizer := tokenizer_create(lock_file_entry1)
 	lock_file_entry, error := parse_lock_file_entry(&tokenizer)
 	testing.expect(
@@ -448,6 +453,272 @@ test_parse_lock_file_entry :: proc(t: ^testing.T) {
 			lock_file_entry.link_type,
 			expected_link_type,
 		),
+	)
+
+	lock_file_entry2 :=
+		`"@babel/preset-env@npm:^7.22.9":
+  version: 7.22.9
+  resolution: "@babel/preset-env@npm:7.22.9"
+  dependencies:
+    "@babel/compat-data": ^7.22.9
+    "@babel/helper-compilation-targets": ^7.22.9
+    "@babel/helper-plugin-utils": ^7.22.5
+    "@babel/helper-validator-option": ^7.22.5
+    "@babel/plugin-bugfix-safari-id-destructuring-collision-in-function-expression": ^7.22.5
+    "@babel/plugin-bugfix-v8-spread-parameters-in-optional-chaining": ^7.22.5
+    "@babel/plugin-proposal-private-property-in-object": 7.21.0-placeholder-for-preset-env.2
+    "@babel/plugin-syntax-async-generators": ^7.8.4
+    "@babel/plugin-syntax-class-properties": ^7.12.13
+    "@babel/plugin-syntax-class-static-block": ^7.14.5
+    "@babel/plugin-syntax-dynamic-import": ^7.8.3
+    "@babel/plugin-syntax-export-namespace-from": ^7.8.3
+    "@babel/plugin-syntax-import-assertions": ^7.22.5
+    "@babel/plugin-syntax-import-attributes": ^7.22.5
+    "@babel/plugin-syntax-import-meta": ^7.10.4
+    "@babel/plugin-syntax-json-strings": ^7.8.3
+    "@babel/plugin-syntax-logical-assignment-operators": ^7.10.4
+    "@babel/plugin-syntax-nullish-coalescing-operator": ^7.8.3
+    "@babel/plugin-syntax-numeric-separator": ^7.10.4
+    "@babel/plugin-syntax-object-rest-spread": ^7.8.3
+    "@babel/plugin-syntax-optional-catch-binding": ^7.8.3
+    "@babel/plugin-syntax-optional-chaining": ^7.8.3
+    "@babel/plugin-syntax-private-property-in-object": ^7.14.5
+    "@babel/plugin-syntax-top-level-await": ^7.14.5
+    "@babel/plugin-syntax-unicode-sets-regex": ^7.18.6
+    "@babel/plugin-transform-arrow-functions": ^7.22.5
+    "@babel/plugin-transform-async-generator-functions": ^7.22.7
+    "@babel/plugin-transform-async-to-generator": ^7.22.5
+    "@babel/plugin-transform-block-scoped-functions": ^7.22.5
+    "@babel/plugin-transform-block-scoping": ^7.22.5
+    "@babel/plugin-transform-class-properties": ^7.22.5
+    "@babel/plugin-transform-class-static-block": ^7.22.5
+    "@babel/plugin-transform-classes": ^7.22.6
+    "@babel/plugin-transform-computed-properties": ^7.22.5
+    "@babel/plugin-transform-destructuring": ^7.22.5
+    "@babel/plugin-transform-dotall-regex": ^7.22.5
+    "@babel/plugin-transform-duplicate-keys": ^7.22.5
+    "@babel/plugin-transform-dynamic-import": ^7.22.5
+    "@babel/plugin-transform-exponentiation-operator": ^7.22.5
+    "@babel/plugin-transform-export-namespace-from": ^7.22.5
+    "@babel/plugin-transform-for-of": ^7.22.5
+    "@babel/plugin-transform-function-name": ^7.22.5
+    "@babel/plugin-transform-json-strings": ^7.22.5
+    "@babel/plugin-transform-literals": ^7.22.5
+    "@babel/plugin-transform-logical-assignment-operators": ^7.22.5
+    "@babel/plugin-transform-member-expression-literals": ^7.22.5
+    "@babel/plugin-transform-modules-amd": ^7.22.5
+    "@babel/plugin-transform-modules-commonjs": ^7.22.5
+    "@babel/plugin-transform-modules-systemjs": ^7.22.5
+    "@babel/plugin-transform-modules-umd": ^7.22.5
+    "@babel/plugin-transform-named-capturing-groups-regex": ^7.22.5
+    "@babel/plugin-transform-new-target": ^7.22.5
+    "@babel/plugin-transform-nullish-coalescing-operator": ^7.22.5
+    "@babel/plugin-transform-numeric-separator": ^7.22.5
+    "@babel/plugin-transform-object-rest-spread": ^7.22.5
+    "@babel/plugin-transform-object-super": ^7.22.5
+    "@babel/plugin-transform-optional-catch-binding": ^7.22.5
+    "@babel/plugin-transform-optional-chaining": ^7.22.6
+    "@babel/plugin-transform-parameters": ^7.22.5
+    "@babel/plugin-transform-private-methods": ^7.22.5
+    "@babel/plugin-transform-private-property-in-object": ^7.22.5
+    "@babel/plugin-transform-property-literals": ^7.22.5
+    "@babel/plugin-transform-regenerator": ^7.22.5
+    "@babel/plugin-transform-reserved-words": ^7.22.5
+    "@babel/plugin-transform-shorthand-properties": ^7.22.5
+    "@babel/plugin-transform-spread": ^7.22.5
+    "@babel/plugin-transform-sticky-regex": ^7.22.5
+    "@babel/plugin-transform-template-literals": ^7.22.5
+    "@babel/plugin-transform-typeof-symbol": ^7.22.5
+    "@babel/plugin-transform-unicode-escapes": ^7.22.5
+    "@babel/plugin-transform-unicode-property-regex": ^7.22.5
+    "@babel/plugin-transform-unicode-regex": ^7.22.5
+    "@babel/plugin-transform-unicode-sets-regex": ^7.22.5
+    "@babel/preset-modules": ^0.1.5
+    "@babel/types": ^7.22.5
+    babel-plugin-polyfill-corejs2: ^0.4.4
+    babel-plugin-polyfill-corejs3: ^0.8.2
+    babel-plugin-polyfill-regenerator: ^0.5.1
+    core-js-compat: ^3.31.0
+    semver: ^6.3.1
+  peerDependencies:
+    "@babel/core": ^7.0.0-0
+  checksum: 6caa2897bbda30c6932aed0a03827deb1337c57108050c9f97dc9a857e1533c7125b168b6d70b9d191965bf05f9f233f0ad20303080505dff7ce39740aaa759d
+  languageName: node
+  linkType: hard` +
+		"\n"
+
+	tokenizer = tokenizer_create(lock_file_entry2)
+	lock_file_entry, error = parse_lock_file_entry(&tokenizer)
+	testing.expect(
+		t,
+		error == nil,
+		fmt.tprintf("Expected error when parsing lock file entry to be `nil`, got: %v", error),
+	)
+
+	expected_names = []string{"@babel/preset-env@npm:^7.22.9"}
+	testing.expect(
+		t,
+		slice.equal(lock_file_entry.names, expected_names),
+		fmt.tprintf(
+			"Expected lock file entry names to be equal, got: %v instead of %v",
+			lock_file_entry.names,
+			expected_names,
+		),
+	)
+
+	expected_version = "7.22.9"
+	testing.expect(
+		t,
+		lock_file_entry.version == expected_version,
+		fmt.tprintf(
+			"Expected lock file entry version to be equal, got: '%s' instead of '%s'",
+			lock_file_entry.version,
+			expected_version,
+		),
+	)
+
+	expected_resolution = "@babel/preset-env@npm:7.22.9"
+	testing.expect(
+		t,
+		lock_file_entry.resolution == expected_resolution,
+		fmt.tprintf(
+			"Expected lock file entry resolution to be equal, got: '%s' instead of '%s'",
+			lock_file_entry.resolution,
+			expected_resolution,
+		),
+	)
+
+	expected_checksum =
+	"6caa2897bbda30c6932aed0a03827deb1337c57108050c9f97dc9a857e1533c7125b168b6d70b9d191965bf05f9f233f0ad20303080505dff7ce39740aaa759d"
+	testing.expect(
+		t,
+		lock_file_entry.checksum == expected_checksum,
+		fmt.tprintf(
+			"Expected lock file entry checksum to be equal, got: '%s' instead of '%s'",
+			lock_file_entry.checksum,
+			expected_checksum,
+		),
+	)
+
+	expected_language_name = "node"
+	testing.expect(
+		t,
+		lock_file_entry.language_name == expected_language_name,
+		fmt.tprintf(
+			"Expected lock file entry language name to be equal, got: '%s' instead of '%s'",
+			lock_file_entry.language_name,
+			expected_language_name,
+		),
+	)
+
+	expected_link_type = LinkType.Hard
+	testing.expect(
+		t,
+		lock_file_entry.link_type == expected_link_type,
+		fmt.tprintf(
+			"Expected lock file entry link type to be equal, got: %v instead of %v",
+			lock_file_entry.link_type,
+			expected_link_type,
+		),
+	)
+
+	expected_dependencies := []Dependency{
+		{name = "@babel/compat-data", bounds = "^7.22.9"},
+		{name = "@babel/helper-compilation-targets", bounds = "^7.22.9"},
+		{name = "@babel/helper-plugin-utils", bounds = "^7.22.5"},
+		{name = "@babel/helper-validator-option", bounds = "^7.22.5"},
+		{
+			name = "@babel/plugin-bugfix-safari-id-destructuring-collision-in-function-expression",
+			bounds = "^7.22.5",
+		},
+		{
+			name = "@babel/plugin-bugfix-v8-spread-parameters-in-optional-chaining",
+			bounds = "^7.22.5",
+		},
+		{
+			name = "@babel/plugin-proposal-private-property-in-object",
+			bounds = "7.21.0-placeholder-for-preset-env.2",
+		},
+		{name = "@babel/plugin-syntax-async-generators", bounds = "^7.8.4"},
+		{name = "@babel/plugin-syntax-class-properties", bounds = "^7.12.13"},
+		{name = "@babel/plugin-syntax-class-static-block", bounds = "^7.14.5"},
+		{name = "@babel/plugin-syntax-dynamic-import", bounds = "^7.8.3"},
+		{name = "@babel/plugin-syntax-export-namespace-from", bounds = "^7.8.3"},
+		{name = "@babel/plugin-syntax-import-assertions", bounds = "^7.22.5"},
+		{name = "@babel/plugin-syntax-import-attributes", bounds = "^7.22.5"},
+		{name = "@babel/plugin-syntax-import-meta", bounds = "^7.10.4"},
+		{name = "@babel/plugin-syntax-json-strings", bounds = "^7.8.3"},
+		{name = "@babel/plugin-syntax-logical-assignment-operators", bounds = "^7.10.4"},
+		{name = "@babel/plugin-syntax-nullish-coalescing-operator", bounds = "^7.8.3"},
+		{name = "@babel/plugin-syntax-numeric-separator", bounds = "^7.10.4"},
+		{name = "@babel/plugin-syntax-object-rest-spread", bounds = "^7.8.3"},
+		{name = "@babel/plugin-syntax-optional-catch-binding", bounds = "^7.8.3"},
+		{name = "@babel/plugin-syntax-optional-chaining", bounds = "^7.8.3"},
+		{name = "@babel/plugin-syntax-private-property-in-object", bounds = "^7.14.5"},
+		{name = "@babel/plugin-syntax-top-level-await", bounds = "^7.14.5"},
+		{name = "@babel/plugin-syntax-unicode-sets-regex", bounds = "^7.18.6"},
+		{name = "@babel/plugin-transform-arrow-functions", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-async-generator-functions", bounds = "^7.22.7"},
+		{name = "@babel/plugin-transform-async-to-generator", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-block-scoped-functions", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-block-scoping", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-class-properties", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-class-static-block", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-classes", bounds = "^7.22.6"},
+		{name = "@babel/plugin-transform-computed-properties", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-destructuring", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-dotall-regex", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-duplicate-keys", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-dynamic-import", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-exponentiation-operator", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-export-namespace-from", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-for-of", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-function-name", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-json-strings", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-literals", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-logical-assignment-operators", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-member-expression-literals", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-modules-amd", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-modules-commonjs", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-modules-systemjs", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-modules-umd", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-named-capturing-groups-regex", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-new-target", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-nullish-coalescing-operator", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-numeric-separator", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-object-rest-spread", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-object-super", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-optional-catch-binding", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-optional-chaining", bounds = "^7.22.6"},
+		{name = "@babel/plugin-transform-parameters", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-private-methods", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-private-property-in-object", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-property-literals", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-regenerator", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-reserved-words", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-shorthand-properties", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-spread", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-sticky-regex", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-template-literals", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-typeof-symbol", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-unicode-escapes", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-unicode-property-regex", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-unicode-regex", bounds = "^7.22.5"},
+		{name = "@babel/plugin-transform-unicode-sets-regex", bounds = "^7.22.5"},
+		{name = "@babel/preset-modules", bounds = "^0.1.5"},
+		{name = "@babel/types", bounds = "^7.22.5"},
+		{name = "babel-plugin-polyfill-corejs2", bounds = "^0.4.4"},
+		{name = "babel-plugin-polyfill-corejs3", bounds = "^0.8.2"},
+		{name = "babel-plugin-polyfill-regenerator", bounds = "^0.5.1"},
+		{name = "core-js-compat", bounds = "^3.31.0"},
+		{name = "semver", bounds = "^6.3.1"},
+	}
+
+	testing.expect_value(t, len(expected_dependencies), len(lock_file_entry.dependencies))
+	testing.expect(
+		t,
+		slice.equal(expected_dependencies, lock_file_entry.dependencies),
+		fmt.tprintf("Expected dependencies to be equal, got: %v instead of %v"),
 	)
 }
 
@@ -581,7 +852,7 @@ test_parse_package_name :: proc(t: ^testing.T) {
 }
 
 parse_version :: proc(tokenizer: ^Tokenizer) -> (version: string, error: ParsingError) {
-	string := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	string := tokenizer_read_string_until(tokenizer, {"\n"}) or_return
 	tokenizer_skip_any_of(tokenizer, {Newline{}})
 
 	return string, nil
@@ -631,7 +902,7 @@ test_parse_resolution :: proc(t: ^testing.T) {
 }
 
 parse_conditions :: proc(tokenizer: ^Tokenizer) -> (conditions: string, error: ParsingError) {
-	conditions = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	conditions = tokenizer_read_string_until(tokenizer, {"\n"}) or_return
 	tokenizer_skip_any_of(tokenizer, {Newline{}})
 
 	return conditions, nil
@@ -645,7 +916,7 @@ parse_dependencies :: proc(
 	error: ParsingError,
 ) {
 	reading_deps := true
-	dependencies_slice := make([dynamic]Dependency, 0, 20, allocator) or_return
+	dependencies_slice := make([dynamic]Dependency, 0, 128, allocator) or_return
 
 	for reading_deps {
 		dependency, dependency_line_error := parse_dependency_line(tokenizer)
@@ -815,24 +1086,14 @@ parse_dependency_line :: proc(
 	error: ParsingError,
 ) {
 	tokenizer_skip_string(tokenizer, "    ") or_return
-	peek_token := tokenizer_peek(tokenizer)
-	_, is_string := peek_token.(String)
-	if !is_string {
-		// we hit a non-string dependency, so we want to read the line as `name: bound`
-		name := tokenizer_read_string_until(tokenizer, {":"}) or_return
-		tokenizer_expect(tokenizer, Colon{}) or_return
-		tokenizer_expect(tokenizer, Space{}) or_return
-		bounds := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
-		tokenizer_expect(tokenizer, Newline{}) or_return
+	tokenizer_skip_string(tokenizer, `"`)
 
-		return Dependency{name = name, bounds = bounds}, nil
-	}
+	name := tokenizer_read_string_until(tokenizer, {`"`, ":"}) or_return
+	tokenizer_skip_string(tokenizer, `"`)
+	tokenizer_expect(tokenizer, Colon{}) or_return
+	tokenizer_expect(tokenizer, Space{}) or_return
 
-	token := tokenizer_expect(tokenizer, String{}) or_return
-	name := token.token.(String).value
-	tokenizer_expect(tokenizer, Colon{})
-	tokenizer_expect(tokenizer, Space{})
-	bounds := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	bounds := tokenizer_read_string_until(tokenizer, {"\n"}) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
 	return Dependency{name = name, bounds = bounds}, nil
@@ -999,7 +1260,7 @@ parse_dependency_meta :: proc(
 }
 
 parse_checksum :: proc(tokenizer: ^Tokenizer) -> (checksum: string, error: ParsingError) {
-	checksum = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	checksum = tokenizer_read_string_until(tokenizer, {"\n"}) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
 	return checksum, nil
@@ -1036,7 +1297,7 @@ parse_language_name :: proc(
 	language_name: string,
 	error: ParsingError,
 ) {
-	language_name = tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	language_name = tokenizer_read_string_until(tokenizer, {"\n"}) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
 	return language_name, nil
@@ -1193,7 +1454,7 @@ parse_binary_line :: proc(tokenizer: ^Tokenizer) -> (binary: Binary, error: Pars
 	tokenizer_skip_string(tokenizer, "    ") or_return
 	name := tokenizer_read_string_until(tokenizer, {":"}) or_return
 	tokenizer_skip_any_of(tokenizer, {Colon{}, Space{}})
-	path := tokenizer_read_string_until(tokenizer, {"\r\n", "\n"}) or_return
+	path := tokenizer_read_string_until(tokenizer, {"\n"}) or_return
 	tokenizer_expect(tokenizer, Newline{}) or_return
 
 	return Binary{name = name, path = path}, nil

@@ -5,13 +5,7 @@ import "core:log"
 import "core:testing"
 
 prefix_matches :: proc(s: string, prefix: string) -> bool {
-	for i := 0; i < len(prefix); i += 1 {
-		if s[i] != prefix[i] {
-			return false
-		}
-	}
-
-	return true
+	return strings.has_prefix(s, prefix)
 }
 
 read_until :: proc(s: string, characters: string) -> string {

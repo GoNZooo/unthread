@@ -459,9 +459,12 @@ current :: proc(tokenizer: ^Tokenizer, modify: bool) -> (token: Token) {
 		return read_lower_symbol(&tokenizer_copy)
 	case:
 		log.panicf(
-			"Unexpected character '%c' at %v",
+			"Unexpected character '%c' @ %s:%d:%d (snippet: '%s')",
 			tokenizer_copy.source[tokenizer_copy.position],
-			tokenizer,
+			tokenizer_copy.filename,
+			tokenizer_copy.line,
+			tokenizer_copy.column,
+			tokenizer_copy.source[tokenizer_copy.position:tokenizer_copy.position + 64],
 		)
 	}
 

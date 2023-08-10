@@ -1,5 +1,6 @@
 package unthread
 
+import "core:path/filepath"
 import "core:fmt"
 import "core:log"
 import "core:os"
@@ -35,5 +36,27 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	log.infof("Lock file entries: %d", len(lock_file.entries))
+	package_json_file := filepath.join({filepath.dir(filename), "package.json"})
+	package_json_file_bytes, package_json_file_read_ok := os.read_entire_file_from_filename(
+		package_json_file,
+	)
+	if !package_json_file_read_ok {
+		fmt.println("Failed to read file: ", package_json_file)
+		os.exit(1)
+	}
+
+	package_json, package_json_error := read_package_json_file(package_json_file_bytes)
+	if package_json_error != nil {
+		fmt.println("Failed to read package.json file: ", package_json_error)
+		os.exit(1)
+	}
+
+	direct_to_transitive_ratio := f32(len(package_json.dependencies)) / f32(len(lock_file.entries))
+
+	fmt.printf(
+		"Direct dependencies: %d (Development: %d)\nRatio of direct to transitive dependencies (direct/transitive): %f\n",
+		len(package_json.dependencies) + len(package_json.devDependencies),
+		len(package_json.devDependencies),
+		direct_to_transitive_ratio,
+	)
 }

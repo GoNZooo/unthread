@@ -4,6 +4,17 @@ tasks:
   default:
     cmds:
       - task: test
+
+  build:
+    cmds:
+      - odin build unthread -o:speed -out:./bin/unthread
+    sources:
+      - unthread/**/*.odin
+    generates:
+      - ./bin/unthread
+    aliases:
+      - b
+    silent: true
   
   test:
     cmds:
@@ -13,6 +24,13 @@ tasks:
     aliases:
       - t
     method: none
+    silent: true
+
+  clean:
+    cmds:
+      - rm -rf ./bin
+    aliases:
+      - c
     silent: true
 
 interval: 250ms

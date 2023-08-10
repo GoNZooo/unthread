@@ -54,9 +54,10 @@ main :: proc() {
 	direct_to_transitive_ratio := f32(len(package_json.dependencies)) / f32(len(lock_file.entries))
 
 	fmt.printf(
-		"Direct dependencies: %d (Development: %d)\nRatio of direct to transitive dependencies (direct/transitive): %f\n",
+		"Dependencies:\n\tDirect: %d (Development: %d)\n\tTransitive: %d\n\tRatio (direct/transitive): %f\n",
 		len(package_json.dependencies) + len(package_json.devDependencies),
 		len(package_json.devDependencies),
+		len(lock_file.entries),
 		direct_to_transitive_ratio,
 	)
 }

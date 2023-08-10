@@ -9,7 +9,7 @@ tasks:
     cmds:
       - odin build unthread -o:speed -out:./bin/unthread
     sources:
-      - unthread/**/*.odin
+      - ./**/*.odin
     generates:
       - ./bin/unthread
     aliases:
@@ -18,11 +18,30 @@ tasks:
   
   test:
     cmds:
-      - odin test unthread
-    sources:
-      - unthread/**/*.odin
+      - task: test_unthread
+      - task: test_cli
     aliases:
       - t
+    method: none
+    silent: true
+
+  test_unthread:
+    cmds:
+      - odin test unthread
+    sources:
+      - ./unthread/**/*.odin
+    aliases:
+      - tunthread
+    method: none
+    silent: true
+
+  test_cli:
+    cmds:
+      - odin test cli
+    sources:
+      - ./cli/**/*.odin
+    aliases:
+      - tcli
     method: none
     silent: true
 

@@ -19,37 +19,45 @@ CliTagValues :: struct {
 	long:  string,
 }
 
-field_name_to_argument_name :: proc(name: string, allocator := context.allocator) -> string {
-	return strings.to_camel_case(name, allocator)
+field_name_to_long_name :: proc(name: string, allocator := context.allocator) -> string {
+	return strings.to_kebab_case(name, allocator)
 }
 
 @(test, private = "package")
-test_field_name_to_argument_name :: proc(t: ^testing.T) {
-	testing.expect_value(t, field_name_to_argument_name("foo"), "foo")
-	testing.expect_value(t, field_name_to_argument_name("foo_bar"), "fooBar")
-	testing.expect_value(t, field_name_to_argument_name("foo_bar_baz"), "fooBarBaz")
+test_field_name_to_long_name :: proc(t: ^testing.T) {
+	testing.expect_value(t, field_name_to_long_name("foo"), "foo")
+	testing.expect_value(t, field_name_to_long_name("foo_bar"), "foo-bar")
+	testing.expect_value(t, field_name_to_long_name("foo_bar_baz"), "foo-bar-baz")
 }
 
 TestStruct :: struct {
 	field_one:   string `cli:"1,field-one"`,
 	field_two:   int `cli:"2,field-two"`,
-	field_three: bool `cli:"3,field-three"`,
+	field_three: bool `cli:"field-three"`,
+	no_tag:      f32,
 }
 
-@(test, private = "package")
-test_get_struct_field_names :: proc(t: ^testing.T) {
-	names := reflect.struct_field_names(TestStruct)
-	testing.expect(t, slice.equal(names, []string{"field_one", "field_two", "field_three"}))
-}
+cli_tag_values :: proc(field_name: string, tag: reflect.Struct_Tag) -> CliTagValues {
+	tag_value := string(tag)
+	if tag_value == "" {
+		long_name := field_name_to_long_name(field_name)
 
-cli_tag_values :: proc(tag: reflect.Struct_Tag) -> CliTagValues {
-	values := strings.split(string(tag), ",")
-	assert(
-		len(values) == 2,
-		fmt.tprintf("invalid `cli` tag format: '%s', should be `short-name,long-name`", tag),
-	)
+		return CliTagValues{long = long_name}
+	}
+	values := strings.split(tag_value, ",")
+	switch len(values) {
+	case 1:
+		return CliTagValues{long = values[0]}
+	case 2:
+		assert(
+			len(values[0]) == 1,
+			fmt.tprintf("invalid `cli` tag format: '%s', short name should be one character", tag),
+		)
 
-	return CliTagValues{short = values[0], long = values[1]}
+		return CliTagValues{short = values[0], long = values[1]}
+	case:
+		fmt.panicf("invalid `cli` tag format: '%s', should be `short-name,long-name`", tag)
+	}
 }
 
 struct_decoding_info :: proc(
@@ -64,7 +72,7 @@ struct_decoding_info :: proc(
 
 	for f, i in struct_fields {
 		tag := reflect.struct_tag_get(f.tag, "cli")
-		tag_values := cli_tag_values(tag)
+		tag_values := cli_tag_values(f.name, tag)
 		decoding_info[i].field_name = f.name
 		decoding_info[i].field_type = f.type.id
 		decoding_info[i].cli_short_name = tag_values.short
@@ -96,9 +104,10 @@ test_struct_field_info :: proc(t: ^testing.T) {
 		{
 			field_name = "field_three",
 			field_type = bool,
-			cli_short_name = "3",
+			cli_short_name = "",
 			cli_long_name = "field-three",
 		},
+		{field_name = "no_tag", field_type = f32, cli_short_name = "", cli_long_name = "no-tag"},
 	}
 	testing.expect(
 		t,

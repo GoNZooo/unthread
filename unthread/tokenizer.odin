@@ -94,8 +94,8 @@ Boolean :: struct {
 
 
 /*
-  A mutable structure that keeps track of and allows operations for looking at,
-  consuming and expecting tokens. Created with `tokenizer_create`.
+A mutable structure that keeps track of and allows operations for looking at,
+consuming and expecting tokens. Created with `tokenizer_create`.
 */
 Tokenizer :: struct {
 	filename: string,

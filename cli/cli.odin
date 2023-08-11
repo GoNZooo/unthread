@@ -1,11 +1,13 @@
 package cli
 
+import "core:log"
 import "core:slice"
 import "core:testing"
 import "core:strings"
 import "core:reflect"
 import "core:fmt"
 import "core:mem"
+import "core:strconv"
 
 StructCliInfo :: struct {
 	type:   typeid,
@@ -29,6 +31,58 @@ TestStruct :: struct {
 	field_two:   int `cli:"2,field-two"`,
 	field_three: bool `cli:"field-three"`,
 	no_tag:      f32,
+}
+
+CliParseError :: union {
+	mem.Allocator_Error,
+	CliValueParseError,
+}
+
+CliValueParseError :: struct {
+	value:   string,
+	type:    typeid,
+	message: string,
+}
+
+parse_arguments_as_type :: proc(
+	arguments: []string,
+	$T: typeid,
+	allocator := context.allocator,
+) -> (
+	value: T,
+	error: CliParseError,
+) {
+	when T == string {
+		return arguments[0], nil
+	} else when T == int {
+		i, ok := strconv.parse_int(arguments[0], 10)
+		if !ok {
+			return 0,
+				CliValueParseError{
+					value = arguments[0],
+					type = T,
+					message = fmt.tprintf("invalid integer value: '%s'", arguments[0]),
+				}
+		}
+
+		return i, nil
+	}
+
+	return value, nil
+}
+
+@(test, private = "package")
+test_parse_arguments_as_type :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	s, error := parse_arguments_as_type({"foo"}, string, context.allocator)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(t, s, "foo")
+
+	i: int
+	i, error = parse_arguments_as_type({"123"}, int, context.allocator)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(t, i, 123)
 }
 
 struct_decoding_info :: proc(

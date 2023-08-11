@@ -56,7 +56,7 @@ cli_tag_values :: proc(field_name: string, tag: reflect.Struct_Tag) -> CliTagVal
 
 		return CliTagValues{short = values[0], long = values[1]}
 	case:
-		fmt.panicf("invalid `cli` tag format: '%s', should be `short-name,long-name`", tag)
+		fmt.panicf("invalid `cli` tag format: '%s', should be `n,name`", tag)
 	}
 }
 

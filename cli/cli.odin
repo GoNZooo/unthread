@@ -1,5 +1,6 @@
 package cli
 
+import "core:intrinsics"
 import "core:log"
 import "core:slice"
 import "core:testing"
@@ -15,10 +16,11 @@ StructCliInfo :: struct {
 }
 
 FieldCliInfo :: struct {
-	field_name:     string,
+	name:           string,
 	cli_short_name: string,
 	cli_long_name:  string,
-	field_type:     typeid,
+	type:           typeid,
+	offset:         uintptr,
 }
 
 CliTagValues :: struct {
@@ -105,6 +107,13 @@ parse_arguments_as_type :: proc(
 		}
 	}
 
+	if reflect.is_struct(type_info_of(T)) {
+		cli_info := struct_decoding_info(T, allocator) or_return
+		v := parse_arguments_with_struct_cli_info(T, cli_info, arguments, allocator) or_return
+
+		return v, nil
+	}
+
 	return value, nil
 }
 
@@ -135,6 +144,221 @@ test_parse_arguments_as_type :: proc(t: ^testing.T) {
 	b, error = parse_arguments_as_type({"true"}, bool, context.allocator)
 	testing.expect_value(t, error, nil)
 	testing.expect_value(t, b, true)
+
+	ts: TestStruct
+	ts, error = parse_arguments_as_type(
+		{"-2=123", "--field-one=foo", "--no-tag=123.456", "--field-three"},
+		TestStruct,
+		context.allocator,
+	)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(
+		t,
+		ts,
+		TestStruct{field_one = "foo", field_two = 123, field_three = true, no_tag = 123.456},
+	)
+}
+
+make_argument_map :: proc(
+	arguments: []string,
+	allocator := context.allocator,
+) -> (
+	result: map[string]string,
+	error: CliParseError,
+) {
+	result = make(map[string]string, 0, allocator) or_return
+
+	for i := 0; i < len(arguments); {
+		without_dash := strings.trim_left(arguments[i], "-")
+		split_on_equals := strings.split(without_dash, "=", allocator) or_return
+		if len(split_on_equals) == 1 {
+			result[split_on_equals[0]] = ""
+			i += 1
+		} else if len(split_on_equals) == 2 {
+			result[split_on_equals[0]] = split_on_equals[1]
+			i += 1
+		} else {
+			error = CliValueParseError {
+				message = fmt.tprintf("invalid flag argument: '%s'", arguments[i]),
+			}
+
+			return result, error
+		}
+	}
+
+	return result, nil
+}
+
+@(test, private = "package")
+test_make_argument_map :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	arguments := []string{"-2=123", "--field-one=foo", "--no-tag=123.456", "--field-three"}
+	result, error := make_argument_map(arguments, context.allocator)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(t, result["2"], "123")
+	testing.expect_value(t, result["field-one"], "foo")
+	testing.expect_value(t, result["no-tag"], "123.456")
+	testing.expect_value(t, result["field-three"], "")
+}
+
+parse_arguments_with_struct_cli_info :: proc(
+	$T: typeid,
+	cli_info: StructCliInfo,
+	arguments: []string,
+	allocator := context.allocator,
+) -> (
+	result: T,
+	error: CliParseError,
+) {
+	assert(T == cli_info.type, "cli_info.type must be equal to T")
+
+	value: T
+	value_bytes: [size_of(T)]byte
+	argument_map := make_argument_map(arguments, context.allocator) or_return
+	for field in cli_info.fields {
+		map_value: string
+		has_value: bool
+		map_value, has_value = argument_map[field.cli_long_name]
+		if !has_value && field.cli_short_name != "" {
+			map_value, has_value = argument_map[field.cli_short_name]
+		}
+		if has_value && field.type == bool && map_value == "" {
+			map_value = "true"
+		}
+		parsed_value := parse_argument_as_type(map_value, field.type, allocator) or_return
+		copy(value_bytes[field.offset:], parsed_value)
+	}
+
+	value = mem.reinterpret_copy(T, raw_data(value_bytes[:]))
+
+	return value, nil
+}
+
+@(test, private = "package")
+test_parse_arguments_with_struct_cli_info :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	arguments := []string{"-2=123", "--field-one=foo", "--no-tag=123.456", "--field-three"}
+	ts_cli_info, cli_info_error := struct_decoding_info(TestStruct, context.allocator)
+	testing.expect_value(t, cli_info_error, nil)
+	ts, error := parse_arguments_with_struct_cli_info(
+		TestStruct,
+		ts_cli_info,
+		arguments,
+		context.allocator,
+	)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(
+		t,
+		ts,
+		TestStruct{field_one = "foo", field_two = 123, field_three = true, no_tag = 123.456},
+	)
+}
+
+parse_argument_as_type :: proc(
+	argument: string,
+	t: typeid,
+	allocator := context.allocator,
+) -> (
+	result: []byte,
+	error: CliParseError,
+) {
+	if t == string {
+		return mem.any_to_bytes(argument), nil
+	} else if t == int {
+		i, ok := strconv.parse_int(argument, 10)
+		if !ok {
+			error = CliValueParseError {
+				message = fmt.tprintf("invalid integer: '%s'", argument),
+			}
+
+			return result, error
+		}
+
+		return mem.any_to_bytes(i), nil
+	} else if t == f32 {
+		f, ok := strconv.parse_f32(argument)
+		if !ok {
+			error = CliValueParseError {
+				message = fmt.tprintf("invalid float: '%s'", argument),
+			}
+
+			return result, error
+		}
+
+		return mem.any_to_bytes(f), nil
+	} else if t == f64 {
+		f, ok := strconv.parse_f64(argument)
+		if !ok {
+			error = CliValueParseError {
+				message = fmt.tprintf("invalid float: '%s'", argument),
+			}
+
+			return result, error
+		}
+
+		return mem.any_to_bytes(f), nil
+	} else if t == bool {
+		if argument == "true" {
+			return mem.any_to_bytes(true), nil
+		} else if argument == "false" {
+			return mem.any_to_bytes(false), nil
+		} else {
+			error = CliValueParseError {
+				message = fmt.tprintf("invalid boolean: '%s'", argument),
+			}
+
+			return result, error
+		}
+	} else {
+		error = CliValueParseError {
+			message = fmt.tprintf("unsupported type: %v", t),
+		}
+
+		return result, error
+	}
+}
+
+@(test, private = "package")
+test_parse_argument_as_type :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	tid: typeid
+
+	tid = string
+	bytes, error := parse_argument_as_type("foo", tid, context.allocator)
+	s := mem.reinterpret_copy(string, raw_data(bytes))
+	testing.expect_value(t, error, nil)
+	testing.expect(t, s == "foo", fmt.tprintf("Expected 'foo', got '%s'", s))
+
+	tid = int
+	bytes, error = parse_argument_as_type("123", tid, context.allocator)
+	i := mem.reinterpret_copy(int, raw_data(bytes))
+	testing.expect_value(t, error, nil)
+	testing.expect(t, i == 123, fmt.tprintf("Expected 123, got %d", i))
+
+	tid = f32
+	bytes, error = parse_argument_as_type("123.456", tid, context.allocator)
+	float32 := mem.reinterpret_copy(f32, raw_data(bytes))
+	testing.expect_value(t, error, nil)
+	testing.expect(t, float32 == 123.456, fmt.tprintf("Expected 123.456, got %f", float32))
+
+	tid = f64
+	bytes, error = parse_argument_as_type("123.456", tid, context.allocator)
+	float64 := mem.reinterpret_copy(f64, raw_data(bytes))
+	testing.expect_value(t, error, nil)
+	testing.expect(t, float64 == 123.456, fmt.tprintf("Expected 123.456, got %f", float64))
+
+	tid = bool
+	bytes, error = parse_argument_as_type("true", tid, context.allocator)
+	boolean := mem.reinterpret_copy(bool, raw_data(bytes))
+	testing.expect_value(t, error, nil)
+	testing.expect(
+		t,
+		boolean,
+		fmt.tprintf("Expected true, got %v (%v)", boolean, typeid_of(type_of(boolean))),
+	)
 }
 
 struct_decoding_info :: proc(
@@ -150,10 +374,11 @@ struct_decoding_info :: proc(
 	for f, i in struct_fields {
 		tag := reflect.struct_tag_get(f.tag, "cli")
 		tag_values := cli_tag_values(f.name, tag)
-		cli_info.fields[i].field_name = f.name
-		cli_info.fields[i].field_type = f.type.id
+		cli_info.fields[i].name = f.name
+		cli_info.fields[i].type = f.type.id
 		cli_info.fields[i].cli_short_name = tag_values.short
 		cli_info.fields[i].cli_long_name = tag_values.long
+		cli_info.fields[i].offset = f.offset
 	}
 
 	cli_info.type = type
@@ -169,24 +394,27 @@ test_struct_field_info :: proc(t: ^testing.T) {
 	}
 	fields := []FieldCliInfo{
 		{
-			field_name = "field_one",
-			field_type = string,
+			name = "field_one",
+			type = string,
 			cli_short_name = "1",
 			cli_long_name = "field-one",
+			offset = 0,
 		},
 		{
-			field_name = "field_two",
-			field_type = int,
+			name = "field_two",
+			type = int,
 			cli_short_name = "2",
 			cli_long_name = "field-two",
+			offset = 16,
 		},
 		{
-			field_name = "field_three",
-			field_type = bool,
+			name = "field_three",
+			type = bool,
 			cli_short_name = "",
 			cli_long_name = "field-three",
+			offset = 24,
 		},
-		{field_name = "no_tag", field_type = f32, cli_short_name = "", cli_long_name = "no-tag"},
+		{name = "no_tag", type = f32, cli_short_name = "", cli_long_name = "no-tag", offset = 28},
 	}
 	testing.expect_value(t, cli_info.type, TestStruct)
 	testing.expect(

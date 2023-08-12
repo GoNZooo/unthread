@@ -66,6 +66,30 @@ parse_arguments_as_type :: proc(
 		}
 
 		return i, nil
+	} else when T == f32 {
+		f, ok := strconv.parse_f32(arguments[0])
+		if !ok {
+			return 0,
+				CliValueParseError{
+					value = arguments[0],
+					type = T,
+					message = fmt.tprintf("invalid float value: '%s'", arguments[0]),
+				}
+		}
+
+		return f, nil
+	} else when T == f64 {
+		f, ok := strconv.parse_f64(arguments[0])
+		if !ok {
+			return 0,
+				CliValueParseError{
+					value = arguments[0],
+					type = T,
+					message = fmt.tprintf("invalid float value: '%s'", arguments[0]),
+				}
+		}
+
+		return f, nil
 	}
 
 	return value, nil
@@ -83,6 +107,16 @@ test_parse_arguments_as_type :: proc(t: ^testing.T) {
 	i, error = parse_arguments_as_type({"123"}, int, context.allocator)
 	testing.expect_value(t, error, nil)
 	testing.expect_value(t, i, 123)
+
+	float32: f32
+	float32, error = parse_arguments_as_type({"123.456"}, f32, context.allocator)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(t, float32, 123.456)
+
+	float64: f64
+	float64, error = parse_arguments_as_type({"123.456"}, f64, context.allocator)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(t, float64, 123.456)
 }
 
 struct_decoding_info :: proc(

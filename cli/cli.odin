@@ -90,6 +90,19 @@ parse_arguments_as_type :: proc(
 		}
 
 		return f, nil
+	} else when T == bool {
+		if arguments[0] == "true" {
+			return true, nil
+		} else if arguments[0] == "false" {
+			return false, nil
+		} else {
+			return false,
+				CliValueParseError{
+					value = arguments[0],
+					type = T,
+					message = fmt.tprintf("invalid boolean value: '%s'", arguments[0]),
+				}
+		}
 	}
 
 	return value, nil
@@ -117,6 +130,11 @@ test_parse_arguments_as_type :: proc(t: ^testing.T) {
 	float64, error = parse_arguments_as_type({"123.456"}, f64, context.allocator)
 	testing.expect_value(t, error, nil)
 	testing.expect_value(t, float64, 123.456)
+
+	b: bool
+	b, error = parse_arguments_as_type({"true"}, bool, context.allocator)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(t, b, true)
 }
 
 struct_decoding_info :: proc(

@@ -168,18 +168,16 @@ make_argument_map :: proc(
 ) {
 	result = make(map[string]string, 0, allocator) or_return
 
-	for i := 0; i < len(arguments); {
-		without_dash := strings.trim_left(arguments[i], "-")
+	for argument in arguments {
+		without_dash := strings.trim_left(argument, "-")
 		split_on_equals := strings.split(without_dash, "=", allocator) or_return
 		if len(split_on_equals) == 1 {
 			result[split_on_equals[0]] = ""
-			i += 1
 		} else if len(split_on_equals) == 2 {
 			result[split_on_equals[0]] = split_on_equals[1]
-			i += 1
 		} else {
 			error = CliValueParseError {
-				message = fmt.tprintf("invalid flag argument: '%s'", arguments[i]),
+				message = fmt.tprintf("invalid flag argument: '%s'", argument),
 			}
 
 			return result, error

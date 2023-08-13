@@ -6,6 +6,12 @@ import "core:log"
 import "core:os"
 import "core:mem/virtual"
 
+import "../cli"
+
+AnalyzeLockFileArguments :: struct {
+	filename: string `cli:"f,filename/required"`,
+}
+
 main :: proc() {
 	arena: virtual.Arena
 	arena_init_error := virtual.arena_init_growing(&arena, 1024 * 1024 * 10)
@@ -18,11 +24,20 @@ main :: proc() {
 
 	arguments := os.args
 	if len(arguments) < 2 {
-		fmt.println("Usage: unthread <file>")
+		fmt.println("Usage: unthread -f=<file>|--filename=<file>")
 		os.exit(1)
 	}
 
-	filename := arguments[1]
+	lock_file_arguments, cli_error := cli.parse_arguments_as_type(
+		arguments,
+		AnalyzeLockFileArguments,
+	)
+	if cli_error != nil {
+		fmt.println("Failed to parse arguments: ", cli_error)
+		os.exit(1)
+	}
+	filename := lock_file_arguments.filename
+
 	file_bytes, file_read_ok := os.read_entire_file_from_filename(filename)
 	if !file_read_ok {
 		fmt.println("Failed to read file: ", filename)

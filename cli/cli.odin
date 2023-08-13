@@ -21,17 +21,19 @@ FieldCliInfo :: struct {
 	cli_long_name:  string,
 	type:           typeid,
 	offset:         uintptr,
+	required:       bool,
 }
 
 CliTagValues :: struct {
-	short: string,
-	long:  string,
+	short:    string,
+	long:     string,
+	required: bool,
 }
 
 TestStruct :: struct {
 	field_one:   string `cli:"1,field-one"`,
 	field_two:   int `cli:"2,field-two"`,
-	field_three: bool `cli:"field-three"`,
+	field_three: bool `cli:"field-three/required"`,
 	no_tag:      f32,
 }
 
@@ -224,6 +226,13 @@ parse_arguments_with_struct_cli_info :: proc(
 		if has_value && field.type == bool && map_value == "" {
 			map_value = "true"
 		}
+		if !has_value && field.required {
+			error = CliValueParseError {
+				message = fmt.tprintf("missing required argument: '%s'", field.cli_long_name),
+			}
+
+			return value, error
+		}
 		parsed_value := parse_argument_as_type(map_value, field.type, allocator) or_return
 		copy(value_bytes[field.offset:], parsed_value)
 	}
@@ -377,6 +386,7 @@ struct_decoding_info :: proc(
 		cli_info.fields[i].cli_short_name = tag_values.short
 		cli_info.fields[i].cli_long_name = tag_values.long
 		cli_info.fields[i].offset = f.offset
+		cli_info.fields[i].required = tag_values.required
 	}
 
 	cli_info.type = type
@@ -397,6 +407,7 @@ test_struct_field_info :: proc(t: ^testing.T) {
 			cli_short_name = "1",
 			cli_long_name = "field-one",
 			offset = 0,
+			required = false,
 		},
 		{
 			name = "field_two",
@@ -404,6 +415,7 @@ test_struct_field_info :: proc(t: ^testing.T) {
 			cli_short_name = "2",
 			cli_long_name = "field-two",
 			offset = 16,
+			required = false,
 		},
 		{
 			name = "field_three",
@@ -411,8 +423,16 @@ test_struct_field_info :: proc(t: ^testing.T) {
 			cli_short_name = "",
 			cli_long_name = "field-three",
 			offset = 24,
+			required = true,
 		},
-		{name = "no_tag", type = f32, cli_short_name = "", cli_long_name = "no-tag", offset = 28},
+		{
+			name = "no_tag",
+			type = f32,
+			cli_short_name = "",
+			cli_long_name = "no-tag",
+			offset = 28,
+			required = false,
+		},
 	}
 	testing.expect_value(t, cli_info.type, TestStruct)
 	testing.expect(
@@ -437,24 +457,35 @@ test_field_name_to_long_name :: proc(t: ^testing.T) {
 	testing.expect_value(t, field_name_to_long_name("foo_bar_baz"), "foo-bar-baz")
 }
 
-cli_tag_values :: proc(field_name: string, tag: reflect.Struct_Tag) -> CliTagValues {
+cli_tag_values :: proc(
+	field_name: string,
+	tag: reflect.Struct_Tag,
+	allocator := context.allocator,
+) -> CliTagValues {
 	tag_value := string(tag)
 	if tag_value == "" {
 		long_name := field_name_to_long_name(field_name)
 
 		return CliTagValues{long = long_name}
 	}
+	keywords: []string
+	keyword_split := strings.split(tag_value, "/")
+	if len(keyword_split) == 2 {
+		keywords = strings.split(keyword_split[1], ",")
+		tag_value = keyword_split[0]
+	}
 	values := strings.split(tag_value, ",")
+	required := len(keywords) > 0 && keywords[0] == "required"
 	switch len(values) {
 	case 1:
-		return CliTagValues{long = values[0]}
+		return CliTagValues{long = values[0], required = required}
 	case 2:
 		assert(
 			len(values[0]) == 1,
 			fmt.tprintf("invalid `cli` tag format: '%s', short name should be one character", tag),
 		)
 
-		return CliTagValues{short = values[0], long = values[1]}
+		return CliTagValues{short = values[0], long = values[1], required = required}
 	case:
 		fmt.panicf("invalid `cli` tag format: '%s', should be `n,name`", tag)
 	}

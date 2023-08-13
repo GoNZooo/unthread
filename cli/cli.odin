@@ -32,7 +32,7 @@ CliTagValues :: struct {
 
 TestStruct :: struct {
 	field_one:   string `cli:"1,field-one"`,
-	field_two:   int `cli:"2,field-two"`,
+	field_two:   int `cli:"2,field-two/required"`,
 	field_three: bool `cli:"field-three/required"`,
 	no_tag:      f32,
 }
@@ -415,7 +415,7 @@ test_struct_field_info :: proc(t: ^testing.T) {
 			cli_short_name = "2",
 			cli_long_name = "field-two",
 			offset = 16,
-			required = false,
+			required = true,
 		},
 		{
 			name = "field_three",
@@ -470,6 +470,7 @@ cli_tag_values :: proc(
 	}
 	keywords: []string
 	keyword_split := strings.split(tag_value, "/")
+	tag_value = keyword_split[0]
 	if len(keyword_split) == 2 {
 		keywords = strings.split(keyword_split[1], ",")
 		tag_value = keyword_split[0]

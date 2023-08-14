@@ -26,8 +26,9 @@ FieldCliInfo :: struct {
 }
 
 UnionCliInfo :: struct {
-	size:     uintptr,
-	variants: []VariantCliInfo,
+	size:       int,
+	tag_offset: uintptr,
+	variants:   []VariantCliInfo,
 }
 
 VariantCliInfo :: struct {
@@ -132,6 +133,15 @@ parse_arguments_as_type :: proc(
 		return v, nil
 	}
 
+	if reflect.is_union(type_info_of(T)) {
+		cli_info := union_decoding_info(T, allocator) or_return
+		bytes := parse_arguments_with_union_cli_info(cli_info, arguments, allocator) or_return
+		v := mem.reinterpret_copy(T, raw_data(bytes))
+
+		return v, nil
+	}
+
+
 	return value, nil
 }
 
@@ -173,6 +183,19 @@ test_parse_arguments_as_type :: proc(t: ^testing.T) {
 	testing.expect_value(
 		t,
 		ts,
+		TestStruct{field_one = "foo", field_two = 123, field_three = true, no_tag = 123.456},
+	)
+
+	tc: TestCommand
+	tc, error = parse_arguments_as_type(
+		{"test-struct", "-2=123", "--field-one=foo", "--no-tag=123.456", "--field-three"},
+		TestCommand,
+		context.allocator,
+	)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(
+		t,
+		tc,
 		TestStruct{field_one = "foo", field_two = 123, field_three = true, no_tag = 123.456},
 	)
 }
@@ -271,6 +294,38 @@ test_parse_arguments_with_struct_cli_info :: proc(t: ^testing.T) {
 		ts,
 		TestStruct{field_one = "foo", field_two = 123, field_three = true, no_tag = 123.456},
 	)
+}
+
+parse_arguments_with_union_cli_info :: proc(
+	cli_info: UnionCliInfo,
+	arguments: []string,
+	allocator := context.allocator,
+) -> (
+	result: []byte,
+	error: CliParseError,
+) {
+	value_bytes := make([]byte, cli_info.size, allocator)
+
+	for variant, i in cli_info.variants {
+		if arguments[0] == variant.cli_name {
+			copy(value_bytes[cli_info.tag_offset:], mem.any_to_bytes(i + 1))
+			cli_info := struct_decoding_info(variant.payload, allocator) or_return
+
+			payload_bytes := parse_arguments_with_struct_cli_info(
+				cli_info,
+				arguments[1:],
+				allocator,
+			) or_return
+			copy(value_bytes[0:], payload_bytes)
+
+			return value_bytes, nil
+		}
+	}
+
+	return result,
+		CliValueParseError{
+			message = fmt.tprintf("Unable to parse any variants from union '%v'", cli_info),
+		}
 }
 
 parse_argument_as_type :: proc(
@@ -464,6 +519,39 @@ test_struct_decoding_info :: proc(t: ^testing.T) {
 field_name_to_long_name :: proc(name: string, allocator := context.allocator) -> string {
 	return strings.to_kebab_case(name, allocator)
 }
+
+union_variant_name :: proc(name: string, allocator := context.allocator) -> string {
+	return strings.to_kebab_case(name, allocator)
+}
+
+union_decoding_info :: proc(
+	type: typeid,
+	allocator := context.allocator,
+) -> (
+	cli_info: UnionCliInfo,
+	error: mem.Allocator_Error,
+) {
+	type_info := type_info_of(type)
+	cli_info.size = type_info.size
+	named, named_ok := type_info.variant.(reflect.Type_Info_Named)
+	assert(named_ok, fmt.tprintf("Expected named type, got %v", type_info.variant))
+	union_info, union_ok := named.base.variant.(reflect.Type_Info_Union)
+	assert(union_ok, fmt.tprintf("Expected union type, got %v", named.base.variant))
+	cli_info.tag_offset = union_info.tag_offset
+	variant_count := len(union_info.variants)
+	variants := make([]VariantCliInfo, variant_count, allocator) or_return
+	for variant, i in union_info.variants {
+		variants[i] = VariantCliInfo {
+			payload  = variant.id,
+			cli_name = union_variant_name(fmt.tprintf("%v", variant.id)),
+		}
+	}
+
+	cli_info.variants = variants
+
+	return cli_info, nil
+}
+
 
 @(test, private = "package")
 test_field_name_to_long_name :: proc(t: ^testing.T) {

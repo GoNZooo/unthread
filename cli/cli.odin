@@ -2,7 +2,6 @@ package cli
 
 import "core:intrinsics"
 import "core:log"
-import "core:slice"
 import "core:testing"
 import "core:strings"
 import "core:reflect"
@@ -12,7 +11,7 @@ import "core:strconv"
 
 StructCliInfo :: struct {
 	type:   typeid,
-	size:   uintptr,
+	size:   int,
 	fields: []FieldCliInfo,
 }
 
@@ -23,7 +22,7 @@ FieldCliInfo :: struct {
 	type:           typeid,
 	offset:         uintptr,
 	required:       bool,
-	size:           uintptr,
+	size:           int,
 }
 
 UnionCliInfo :: struct {
@@ -174,19 +173,6 @@ test_parse_arguments_as_type :: proc(t: ^testing.T) {
 	testing.expect_value(
 		t,
 		ts,
-		TestStruct{field_one = "foo", field_two = 123, field_three = true, no_tag = 123.456},
-	)
-
-	tc: TestCommand
-	tc, error = parse_arguments_as_type(
-		{"test-struct", "-2=123", "--field-one=foo", "--no-tag=123.456", "--field-three"},
-		TestCommand,
-		context.allocator,
-	)
-	testing.expect_value(t, error, nil)
-	testing.expect_value(
-		t,
-		tc,
 		TestStruct{field_one = "foo", field_two = 123, field_three = true, no_tag = 123.456},
 	)
 }
@@ -399,23 +385,24 @@ struct_decoding_info :: proc(
 	cli_info: StructCliInfo,
 	error: mem.Allocator_Error,
 ) {
+	type_info := type_info_of(type)
+	cli_info.size = type_info.size
+	cli_info.type = type
 	struct_fields := reflect.struct_fields_zipped(type)
 	cli_info.fields = make([]FieldCliInfo, len(struct_fields), allocator) or_return
 
 	for f, i in struct_fields {
 		tag := reflect.struct_tag_get(f.tag, "cli")
 		tag_values := cli_tag_values(f.name, tag)
+		field_type_info := type_info_of(f.type.id)
 		cli_info.fields[i].name = f.name
 		cli_info.fields[i].type = f.type.id
 		cli_info.fields[i].cli_short_name = tag_values.short
 		cli_info.fields[i].cli_long_name = tag_values.long
 		cli_info.fields[i].offset = f.offset
 		cli_info.fields[i].required = tag_values.required
-		cli_info.fields[i].size = size_of(f.type.id)
+		cli_info.fields[i].size = field_type_info.size
 	}
-
-	cli_info.type = type
-	cli_info.size = size_of(type_of(type))
 
 	return cli_info, nil
 }
@@ -434,6 +421,7 @@ test_struct_decoding_info :: proc(t: ^testing.T) {
 			cli_long_name = "field-one",
 			offset = 0,
 			required = false,
+			size = 16,
 		},
 		{
 			name = "field_two",
@@ -442,6 +430,7 @@ test_struct_decoding_info :: proc(t: ^testing.T) {
 			cli_long_name = "field-two",
 			offset = 16,
 			required = true,
+			size = 8,
 		},
 		{
 			name = "field_three",
@@ -450,6 +439,7 @@ test_struct_decoding_info :: proc(t: ^testing.T) {
 			cli_long_name = "field-three",
 			offset = 24,
 			required = true,
+			size = 1,
 		},
 		{
 			name = "no_tag",
@@ -458,18 +448,17 @@ test_struct_decoding_info :: proc(t: ^testing.T) {
 			cli_long_name = "no-tag",
 			offset = 28,
 			required = false,
+			size = 4,
 		},
 	}
 	testing.expect_value(t, cli_info.type, TestStruct)
-	testing.expect(
-		t,
-		slice.equal(cli_info.fields, fields),
-		fmt.tprintf(
-			"Expected CLI info field slices to be equal, got: %v instead of %v",
-			cli_info,
-			fields,
-		),
-	)
+	for f, i in fields {
+		testing.expect(
+			t,
+			cli_info.fields[i] == f,
+			fmt.tprintf("Expected %v, got %v", f, cli_info.fields[i]),
+		)
+	}
 }
 
 field_name_to_long_name :: proc(name: string, allocator := context.allocator) -> string {

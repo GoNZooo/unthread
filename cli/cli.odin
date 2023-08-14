@@ -12,6 +12,7 @@ import "core:strconv"
 
 StructCliInfo :: struct {
 	type:   typeid,
+	size:   uintptr,
 	fields: []FieldCliInfo,
 }
 
@@ -22,12 +23,27 @@ FieldCliInfo :: struct {
 	type:           typeid,
 	offset:         uintptr,
 	required:       bool,
+	size:           uintptr,
+}
+
+UnionCliInfo :: struct {
+	size:     uintptr,
+	variants: []VariantCliInfo,
+}
+
+VariantCliInfo :: struct {
+	cli_name: string,
+	payload:  typeid,
 }
 
 CliTagValues :: struct {
 	short:    string,
 	long:     string,
 	required: bool,
+}
+
+TestCommand :: union {
+	TestStruct,
 }
 
 TestStruct :: struct {
@@ -111,7 +127,8 @@ parse_arguments_as_type :: proc(
 
 	if reflect.is_struct(type_info_of(T)) {
 		cli_info := struct_decoding_info(T, allocator) or_return
-		v := parse_arguments_with_struct_cli_info(T, cli_info, arguments, allocator) or_return
+		bytes := parse_arguments_with_struct_cli_info(cli_info, arguments, allocator) or_return
+		v := mem.reinterpret_copy(T, raw_data(bytes))
 
 		return v, nil
 	}
@@ -159,6 +176,19 @@ test_parse_arguments_as_type :: proc(t: ^testing.T) {
 		ts,
 		TestStruct{field_one = "foo", field_two = 123, field_three = true, no_tag = 123.456},
 	)
+
+	tc: TestCommand
+	tc, error = parse_arguments_as_type(
+		{"test-struct", "-2=123", "--field-one=foo", "--no-tag=123.456", "--field-three"},
+		TestCommand,
+		context.allocator,
+	)
+	testing.expect_value(t, error, nil)
+	testing.expect_value(
+		t,
+		tc,
+		TestStruct{field_one = "foo", field_two = 123, field_three = true, no_tag = 123.456},
+	)
 }
 
 make_argument_map :: proc(
@@ -203,18 +233,14 @@ test_make_argument_map :: proc(t: ^testing.T) {
 }
 
 parse_arguments_with_struct_cli_info :: proc(
-	$T: typeid,
 	cli_info: StructCliInfo,
 	arguments: []string,
 	allocator := context.allocator,
 ) -> (
-	result: T,
+	result: []byte,
 	error: CliParseError,
 ) {
-	assert(T == cli_info.type, "cli_info.type must be equal to T")
-
-	value: T
-	value_bytes: [size_of(T)]byte
+	value_bytes := make([]byte, cli_info.size, allocator)
 	argument_map := make_argument_map(arguments, context.allocator) or_return
 	for field in cli_info.fields {
 		map_value: string
@@ -231,15 +257,13 @@ parse_arguments_with_struct_cli_info :: proc(
 				message = fmt.tprintf("missing required argument: '%s'", field.cli_long_name),
 			}
 
-			return value, error
+			return []byte{}, error
 		}
 		parsed_value := parse_argument_as_type(map_value, field.type, allocator) or_return
 		copy(value_bytes[field.offset:], parsed_value)
 	}
 
-	value = mem.reinterpret_copy(T, raw_data(value_bytes[:]))
-
-	return value, nil
+	return value_bytes, nil
 }
 
 @(test, private = "package")
@@ -249,13 +273,13 @@ test_parse_arguments_with_struct_cli_info :: proc(t: ^testing.T) {
 	arguments := []string{"-2=123", "--field-one=foo", "--no-tag=123.456", "--field-three"}
 	ts_cli_info, cli_info_error := struct_decoding_info(TestStruct, context.allocator)
 	testing.expect_value(t, cli_info_error, nil)
-	ts, error := parse_arguments_with_struct_cli_info(
-		TestStruct,
+	ts_bytes, error := parse_arguments_with_struct_cli_info(
 		ts_cli_info,
 		arguments,
 		context.allocator,
 	)
 	testing.expect_value(t, error, nil)
+	ts := mem.reinterpret_copy(TestStruct, raw_data(ts_bytes))
 	testing.expect_value(
 		t,
 		ts,
@@ -387,15 +411,17 @@ struct_decoding_info :: proc(
 		cli_info.fields[i].cli_long_name = tag_values.long
 		cli_info.fields[i].offset = f.offset
 		cli_info.fields[i].required = tag_values.required
+		cli_info.fields[i].size = size_of(f.type.id)
 	}
 
 	cli_info.type = type
+	cli_info.size = size_of(type_of(type))
 
 	return cli_info, nil
 }
 
 @(test, private = "package")
-test_struct_field_info :: proc(t: ^testing.T) {
+test_struct_decoding_info :: proc(t: ^testing.T) {
 	cli_info, allocator_error := struct_decoding_info(TestStruct)
 	if allocator_error != nil {
 		fmt.panicf("Allocator error: %s", allocator_error)

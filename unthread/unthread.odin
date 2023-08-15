@@ -8,7 +8,11 @@ import "core:mem/virtual"
 
 import "../cli"
 
-AnalyzeLockFileArguments :: struct {
+Command :: union {
+	AnalyzeLockFile,
+}
+
+AnalyzeLockFile :: struct {
 	filename: string `cli:"f,filename/required"`,
 }
 
@@ -28,14 +32,18 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	lock_file_arguments, cli_error := cli.parse_arguments_as_type(
-		arguments,
-		AnalyzeLockFileArguments,
-	)
+	command, cli_error := cli.parse_arguments_as_type(arguments[1:], Command)
 	if cli_error != nil {
 		fmt.println("Failed to parse arguments: ", cli_error)
 		os.exit(1)
 	}
+	switch c in command {
+	case AnalyzeLockFile:
+		run_analyze_lock_file(c)
+	}
+}
+
+run_analyze_lock_file :: proc(lock_file_arguments: AnalyzeLockFile) {
 	filename := lock_file_arguments.filename
 
 	file_bytes, file_read_ok := os.read_entire_file_from_filename(filename)

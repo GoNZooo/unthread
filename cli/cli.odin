@@ -29,6 +29,7 @@ UnionCliInfo :: struct {
 	size:       int,
 	tag_offset: uintptr,
 	variants:   []VariantCliInfo,
+	start_tag:  int,
 }
 
 VariantCliInfo :: struct {
@@ -44,6 +45,15 @@ CliTagValues :: struct {
 
 TestCommand :: union {
 	TestStruct,
+}
+
+TestCommandNoNil :: union #no_nil {
+	TestStruct,
+	OtherStruct,
+}
+
+OtherStruct :: struct {
+	field_one: string,
 }
 
 TestStruct :: struct {
@@ -308,7 +318,8 @@ parse_arguments_with_union_cli_info :: proc(
 
 	for variant, i in cli_info.variants {
 		if arguments[0] == variant.cli_name {
-			copy(value_bytes[cli_info.tag_offset:], mem.any_to_bytes(i + 1))
+			variant_tag := i + cli_info.start_tag
+			copy(value_bytes[cli_info.tag_offset:], mem.any_to_bytes(variant_tag))
 			cli_info := struct_decoding_info(variant.payload, allocator) or_return
 
 			payload_bytes := parse_arguments_with_struct_cli_info(
@@ -538,6 +549,8 @@ union_decoding_info :: proc(
 	union_info, union_ok := named.base.variant.(reflect.Type_Info_Union)
 	assert(union_ok, fmt.tprintf("Expected union type, got %v", named.base.variant))
 	cli_info.tag_offset = union_info.tag_offset
+	cli_info.start_tag = 0 if union_info.no_nil else 1
+
 	variant_count := len(union_info.variants)
 	variants := make([]VariantCliInfo, variant_count, allocator) or_return
 	for variant, i in union_info.variants {
@@ -552,6 +565,34 @@ union_decoding_info :: proc(
 	return cli_info, nil
 }
 
+@(test, private = "package")
+test_union_decoding_info :: proc(t: ^testing.T) {
+	context.logger = log.create_console_logger()
+
+	cli_info, decoding_info_error := union_decoding_info(TestCommand)
+	testing.expect_value(t, decoding_info_error, nil)
+	testing.expect_value(t, cli_info.size, 40)
+	testing.expect_value(t, cli_info.tag_offset, 32)
+	testing.expect_value(t, cli_info.start_tag, 1)
+	testing.expect_value(t, len(cli_info.variants), 1)
+	if len(cli_info.variants) == 1 {
+		testing.expect_value(t, cli_info.variants[0].payload, TestStruct)
+		testing.expect_value(t, cli_info.variants[0].cli_name, "test-struct")
+	}
+
+	cli_info2, decoding_info_error2 := union_decoding_info(TestCommandNoNil)
+	testing.expect_value(t, decoding_info_error2, nil)
+	testing.expect_value(t, cli_info2.size, 40)
+	testing.expect_value(t, cli_info2.tag_offset, 32)
+	testing.expect_value(t, cli_info2.start_tag, 0)
+	testing.expect_value(t, len(cli_info2.variants), 2)
+	if len(cli_info2.variants) == 2 {
+		testing.expect_value(t, cli_info2.variants[0].payload, TestStruct)
+		testing.expect_value(t, cli_info2.variants[0].cli_name, "test-struct")
+		testing.expect_value(t, cli_info2.variants[1].payload, OtherStruct)
+		testing.expect_value(t, cli_info2.variants[1].cli_name, "other-struct")
+	}
+}
 
 @(test, private = "package")
 test_field_name_to_long_name :: proc(t: ^testing.T) {

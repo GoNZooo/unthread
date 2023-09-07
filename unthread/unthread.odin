@@ -27,7 +27,8 @@ main :: proc() {
 
 	arguments := os.args
 	if len(arguments) < 2 {
-		fmt.println("Usage: unthread -f <file>|--filename <file>")
+		fmt.printf("Commands:\n\n")
+		cli.print_help_for_union_type_and_exit(Command)
 		os.exit(1)
 	}
 

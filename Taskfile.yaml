@@ -1,5 +1,8 @@
 version: 3
 
+vars:
+  COLLECTION: -collection:dependencies=dependencies
+
 tasks:
   default:
     cmds:
@@ -7,7 +10,7 @@ tasks:
 
   build:
     cmds:
-      - odin build unthread -o:speed -out:./bin/unthread
+      - odin build unthread -o:speed -out:./bin/unthread {{.COLLECTION}}
     sources:
       - ./**/*.odin
     generates:
@@ -19,7 +22,6 @@ tasks:
   test:
     cmds:
       - task: test_unthread
-      - task: test_cli
     aliases:
       - t
     method: none
@@ -27,21 +29,11 @@ tasks:
 
   test_unthread:
     cmds:
-      - odin test unthread
+      - odin test unthread {{.COLLECTION}}
     sources:
       - ./unthread/**/*.odin
     aliases:
       - tunthread
-    method: none
-    silent: true
-
-  test_cli:
-    cmds:
-      - odin test cli
-    sources:
-      - ./cli/**/*.odin
-    aliases:
-      - tcli
     method: none
     silent: true
 

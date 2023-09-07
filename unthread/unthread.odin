@@ -5,8 +5,7 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:mem/virtual"
-
-import "../cli"
+import "dependencies:cli"
 
 Command :: union {
 	AnalyzeLockFile,
@@ -32,7 +31,7 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	command, cli_error := cli.parse_arguments_as_type(arguments[1:], Command)
+	command, _, cli_error := cli.parse_arguments_as_type(arguments[1:], Command)
 	if cli_error != nil {
 		fmt.println("Failed to parse arguments: ", cli_error)
 		os.exit(1)

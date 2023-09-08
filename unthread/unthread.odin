@@ -9,10 +9,16 @@ import "dependencies:cli"
 
 Command :: union {
 	AnalyzeLockFile,
+	DiffLockFiles,
 }
 
 AnalyzeLockFile :: struct {
 	filename: string `cli:"f,filename/required"`,
+}
+
+DiffLockFiles :: struct {
+	file1: string `cli:"1,file1/required"`,
+	file2: string `cli:"2,file2/required"`,
 }
 
 main :: proc() {
@@ -40,6 +46,8 @@ main :: proc() {
 	switch c in command {
 	case AnalyzeLockFile:
 		run_analyze_lock_file(c)
+	case DiffLockFiles:
+		run_diff_lock_files(c)
 	}
 }
 
@@ -83,4 +91,56 @@ run_analyze_lock_file :: proc(lock_file_arguments: AnalyzeLockFile) {
 		len(lock_file.entries),
 		direct_to_transitive_ratio,
 	)
+}
+
+run_diff_lock_files :: proc(arguments: DiffLockFiles) {
+	file1 := arguments.file1
+	file2 := arguments.file2
+
+	file1_bytes, file1_read_ok := os.read_entire_file_from_filename(file1)
+	if !file1_read_ok {
+		fmt.println("Failed to read file: ", file1)
+		os.exit(1)
+	}
+
+	file2_bytes, file2_read_ok := os.read_entire_file_from_filename(file2)
+	if !file2_read_ok {
+		fmt.println("Failed to read file: ", file2)
+		os.exit(1)
+	}
+
+	file1_data := string(file1_bytes)
+	file2_data := string(file2_bytes)
+
+	tokenizer1 := tokenizer_create(file1_data, file1)
+	tokenizer2 := tokenizer_create(file2_data, file2)
+
+	lock_file1, lock_file1_error := parse_lock_file(file1, file1_data, &tokenizer1)
+	if lock_file1_error != nil {
+		fmt.println("Failed to parse lock file: ", lock_file1_error)
+		os.exit(1)
+	}
+
+	lock_file2, lock_file2_error := parse_lock_file(file2, file2_data, &tokenizer2)
+	if lock_file2_error != nil {
+		fmt.println("Failed to parse lock file: ", lock_file2_error)
+		os.exit(1)
+	}
+
+	lock_file1_entries := lock_file1.entries
+	lock_file2_entries := lock_file2.entries
+
+	in_a, in_b, diff_error := diff_package_entries(lock_file1_entries, lock_file2_entries)
+	if diff_error != nil {
+		fmt.println("Failed to diff lock files: ", diff_error)
+		os.exit(1)
+	}
+
+	for name, _ in in_a {
+		fmt.printf("- %s\n", name)
+	}
+
+	for name, _ in in_b {
+		fmt.printf("+ %s\n", name)
+	}
 }

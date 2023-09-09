@@ -8,6 +8,14 @@ tasks:
     cmds:
       - task: test
 
+  debug:
+    depends:
+      - build_debug
+    cmds:
+      - lldb ./bin/unthread-debug
+    method: none
+    silent: true
+
   build:
     cmds:
       - odin build unthread -o:speed -out:./bin/unthread {{.COLLECTION}}
@@ -17,6 +25,17 @@ tasks:
       - ./bin/unthread
     aliases:
       - b
+    silent: true
+
+  build_debug:
+    cmds:
+      - odin build unthread -o:none -debug -out:./bin/unthread-debug {{.COLLECTION}}
+    sources:
+      - ./**/*.odin
+    generates:
+      - ./bin/unthread-debug
+    aliases:
+      - bd
     silent: true
   
   test:

@@ -1,0 +1,21 @@
+name: build-and-upload
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    container: gonz/odin:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Build
+        run: mkdir bin && odin build unthread -o:speed -out:./bin/unthread
+      - name: Upload
+        uses: actions/upload-artifact@v3
+        with:
+          name: unthread
+          path: bin/unthread

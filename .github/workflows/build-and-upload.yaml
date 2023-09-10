@@ -9,6 +9,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  releases: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,8 +24,6 @@ jobs:
           mkdir bin
           odin build unthread -o:speed -out:./bin/unthread -collection:dependencies=dependencies
   upload:
-    permissions:
-      releases: write
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')

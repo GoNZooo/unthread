@@ -1,21 +1,31 @@
-name: build-and-upload
+name: build-and-maybe-upload-release
 
 on:
   push:
+    # Build on push to `main`
     branches:
       - main
+    # Build release only when a tag is created starting with "v"
+    tags:
+      - 'v*'
 
 jobs:
-  build-and-upload:
+  build:
     runs-on: ubuntu-latest
     container: gonz/odin:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Build
-        run: mkdir bin && odin build unthread -o:speed -out:./bin/unthread -collection:dependencies=dependencies
-      - name: Upload
-        uses: actions/upload-artifact@v3
+        run: |
+          mkdir bin
+          odin build unthread -o:speed -out:./bin/unthread -collection:dependencies=dependencies
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Create release
+        uses: ncipollo/release-action@v1
         with:
-          name: unthread
-          path: bin/unthread
+          artifacts: bin/unthread

@@ -1,6 +1,10 @@
 name: build-and-maybe-upload-release
 
 on:
+  pull_request:
+    # Build on pull requests to `main`
+    branches:
+      - main
   push:
     # Build on push to `main`
     branches:
@@ -28,3 +32,4 @@ jobs:
         with:
           artifacts: bin/unthread
           replacesArtifacts: true
+          allowUpdates: true

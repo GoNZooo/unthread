@@ -833,10 +833,7 @@ test_parse_package_names :: proc(t: ^testing.T) {
 }
 
 parse_package_name :: proc(tokenizer: ^Tokenizer) -> (name: string, error: ParsingError) {
-	token, expect_error := tokenizer_expect(tokenizer, String{})
-	if expect_error != nil {
-		return "", expect_error
-	}
+	token := tokenizer_expect(tokenizer, String{}) or_return
 
 	return token.token.(String).value, nil
 }

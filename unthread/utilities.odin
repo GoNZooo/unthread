@@ -1,9 +1,9 @@
 package unthread
 
-import "core:strings"
 import "core:log"
-import "core:testing"
 import "core:mem"
+import "core:strings"
+import "core:testing"
 
 diff_package_entries :: proc(
 	a: []LockFileEntry,

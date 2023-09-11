@@ -1,11 +1,11 @@
 package unthread
 
-import "core:strings"
-import "core:log"
-import "core:strconv"
-import "core:testing"
-import "core:reflect"
 import "core:fmt"
+import "core:log"
+import "core:reflect"
+import "core:strconv"
+import "core:strings"
+import "core:testing"
 
 SourceToken :: struct {
 	token:    Token,

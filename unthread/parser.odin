@@ -1,14 +1,14 @@
 package unthread
 
-import "core:time"
-import "core:mem/virtual"
-import "core:os"
-import "core:strings"
-import "core:testing"
 import "core:fmt"
 import "core:log"
-import "core:slice"
 import "core:mem"
+import "core:mem/virtual"
+import "core:os"
+import "core:slice"
+import "core:strings"
+import "core:testing"
+import "core:time"
 
 LockFile :: struct {
 	filename:  string,

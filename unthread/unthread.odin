@@ -1,10 +1,11 @@
 package unthread
 
-import "core:path/filepath"
 import "core:fmt"
 import "core:log"
-import "core:os"
 import "core:mem/virtual"
+import "core:os"
+import "core:path/filepath"
+
 import "dependencies:cli"
 
 Command :: union {

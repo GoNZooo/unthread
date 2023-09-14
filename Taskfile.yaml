@@ -12,7 +12,7 @@ tasks:
     depends:
       - build_debug
     cmds:
-      - lldb ./bin/unthread-debug
+      - gdb ./bin/unthread-debug
     method: none
     silent: true
 

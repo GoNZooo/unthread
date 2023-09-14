@@ -9,10 +9,18 @@ tasks:
       - task: test
 
   debug:
-    depends:
+    deps:
       - build_debug
     cmds:
       - gdb ./bin/unthread-debug
+    method: none
+    silent: true
+
+  debug_analyze_lock_file:
+    deps:
+      - build_debug
+    cmds:
+      - gdb -ex "set args analyze-lock-file -f test_data/test_file_1.lock" ./bin/unthread-debug
     method: none
     silent: true
 

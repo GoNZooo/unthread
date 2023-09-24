@@ -478,9 +478,7 @@ read_lower_symbol :: proc(tokenizer: ^Tokenizer) -> (token: Token) {
 
 	assert(source[0] >= 'a' && source[0] <= 'z')
 
-	// NOTE: This funky addition of double quote is because the syntax highlighting breaks
-	// if you escape a double quote in the string literal...
-	symbol_value := read_until(source, " \t\n()[]{}<>,.:'" + `"`)
+	symbol_value := read_until(source, " \t\n()[]{}<>,.:'\"")
 	symbol_length := len(symbol_value)
 	tokenizer.position += symbol_length
 	tokenizer.column += symbol_length
